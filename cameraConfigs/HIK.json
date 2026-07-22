@@ -1,0 +1,37 @@
+{
+  "_说明": "HIK（海康威视）品牌相机配置 - 包含海康特有的API路径和参数",
+  "Connection": {
+    "_说明": "相机连接参数",
+    "DefaultIp": "192.168.0.64",
+    "Username": "admin",
+    "Password": "Hik12345",
+    "TimeoutSeconds": 15,
+    "UserAgent": "YoloDetector/1.0"
+  },
+  "Api": {
+    "_说明": "API接口参数 - 海康威视品牌特有",
+    "CameraBrand": "HIK",
+    "SignSecret": "hikvision_secret_key",
+    "OldControlApiPath": "/ISAPI/System/Network/ipAddress",
+    "NewControlApiPath": "/ISAPI/System/Network/ipAddress",
+    "IpApiPath": "/ISAPI/System/Network/ipAddress",
+    "CpuApiPath": "/ISAPI/System/status",
+    "MemApiPath": "/ISAPI/System/status",
+    "DiskTotalApiPath": "/ISAPI/Storage/ HDD/manage",
+    "DiskFreeApiPath": "/ISAPI/Storage/ HDD/manage",
+    "TotalCountApiPath": "/ISAPI/Recording/capabilities",
+    "RtmpBandwidthApiPath": "/ISAPI/Streaming/Channels/{channel}/status",
+    "RtspBandwidthApiPath": "/ISAPI/Streaming/Channels/{channel}/status"
+  },
+  "Stream": {
+    "_说明": "视频流参数",
+    "RtspPort": 554,
+    "RtspUrlFormat": "rtsp://{username}:{password}@{ip}:{port}/Streaming/Channels/{channel}01",
+    "MaxChannel": 32
+  },
+  "Preview": {
+    "_说明": "预览参数",
+    "PreviewPagePath": "/ISAPI/Streaming/channels/{channel}/picture",
+    "StatusRefreshIntervalMs": 5000
+  }
+}

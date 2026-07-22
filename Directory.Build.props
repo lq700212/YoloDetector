@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- 使用默认输出目录：bin/ 和 obj/ -->
+    <MSBuildProjectExtensionsPath>obj\</MSBuildProjectExtensionsPath>
+  </PropertyGroup>
+</Project>

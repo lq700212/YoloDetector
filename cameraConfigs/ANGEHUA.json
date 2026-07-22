@@ -1,0 +1,26 @@
+{
+  "_说明": "ANGEHUA（安格华）品牌相机配置 - 包含ANGEHUA特有的API路径和参数",
+  "Connection": {
+    "_说明": "相机连接参数",
+    "DefaultIp": "192.168.1.188",
+    "Username": "admin",
+    "Password": "admin",
+    "TimeoutSeconds": 10,
+    "UserAgent": "YoloDetector/1.0"
+  },
+  "Api": {
+    "_说明": "API接口参数 - ANGEHUA品牌特有（仅支持RTSP协议，无HTTP API）",
+    "CameraBrand": "ANGEHUA"
+  },
+  "Stream": {
+    "_说明": "视频流参数",
+    "RtspPort": 554,
+    "RtspUrlFormat": "rtsp://{ip}:{port}/ch01.264",
+    "MaxChannel": 7
+  },
+  "Preview": {
+    "_说明": "预览参数",
+    "PreviewPagePath": "",
+    "StatusRefreshIntervalMs": 5000
+  }
+}
