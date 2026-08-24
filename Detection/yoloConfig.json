@@ -1,0 +1,17 @@
+{
+  "_说明": "YOLO目标检测配置文件（路径相对程序exe目录）",
+  "_调参": "ConfidenceThreshold: 低→灵敏但误检多, 高→精准但漏检。NmsThreshold: 低→框少(合并强), 高→框多",
+  "_检测不到人的常见原因": "1)置信度阈值太高 2)人物在画面中太小 3)光线不足",
+  "_排查方法": "开启YoloDebugLog后，日志文件中会输出[YOLO]开头的检测过程信息",
+  "_日志控制": "YoloDebugLog: true=开启YOLO详细日志(调试用), false=关闭(避免刷屏)",
+  "_检测结果日志": "DetectionResultLog: true=输出每帧检测结果(会卡顿), false=关闭(推荐)",
+  "_可视化方案": "VisualizerType: YoloBuiltin(红色框,GDI+绘制), OpenCV(绿色框,OpenCV绘制)",
+  "_模型切换": "更换onnx模型时放到 Detection/model/ 目录并修改 ModelPath 即可",
+  "ModelPath": "Detection/model/yolo26n.onnx",
+  "ConfidenceThreshold": 0.2,
+  "NmsThreshold": 0.5,
+  "Enabled": true,
+  "VisualizerType": "YoloBuiltin",
+  "YoloDebugLog": false,
+  "DetectionResultLog": false
+}

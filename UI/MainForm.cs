@@ -1,0 +1,595 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Net;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using YoloDetector.App;
+using YoloDetector.Cameras;
+using YoloDetector.Configuration;
+using YoloDetector.Detection;
+using YoloDetector.Infrastructure.Logging;
+
+namespace YoloDetector.UI
+{
+    /// <summary>
+    /// 主窗体（纯视图层）。
+    ///
+    /// 职责边界：
+    ///   - 只负责界面构建、用户交互与结果显示
+    ///   - 相机连接管理委托给 CameraController
+    ///   - 视频检测编排委托给 VideoDetectionController（UI 层不接触任何 Mat/OpenCV 对象）
+    ///
+    /// 后台回调安全约定：
+    ///   控制器的回调在后台线程触发，本窗体所有回调入口统一经过
+    ///   SafeBeginInvoke 保护（句柄检查 + 异常兜底），杜绝关闭窗口瞬间的崩溃。
+    /// </summary>
+    public partial class MainForm : Form
+    {
+        private readonly CameraController _cameraController = new CameraController();
+        private VideoDetectionController _videoController;
+
+        private System.Windows.Forms.Timer _statusTimer;
+
+        // 最近一次检测结果快照（不可变副本，供扩展使用）
+        private volatile List<DetectionResult> _lastDetections = new List<DetectionResult>();
+        private long _detectionCount;
+
+        public MainForm()
+        {
+            InitializeComponent();
+            InitializeControllers();
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+
+            // 句柄创建后再记录启动日志，确保能显示到UI面板
+            AddLog("程序已启动，请输入相机IP地址并点击【连接相机】");
+            AddLog("提示：连接成功后点击【开始预览】查看摄像头画面");
+        }
+
+        private void InitializeControllers()
+        {
+            _statusTimer = new System.Windows.Forms.Timer
+            {
+                Interval = AppConfig.Current.Preview.StatusRefreshIntervalMs
+            };
+            _statusTimer.Tick += StatusTimer_Tick;
+
+            DetectorFactoryRegistry.RegisterFactory(new YoloV26DetectorFactory());
+        }
+
+        // ============================================================
+        // 日志
+        // ============================================================
+
+        /// <summary>追加一条操作日志（写入文件 + UI 面板，任意线程可调用）</summary>
+        private void AddLog(string message)
+        {
+            Logger.Write(message);
+
+            // 无法送达UI时（窗体关闭中）仅记录到文件，无需额外处理
+            SafeBeginInvoke(() => AppendLogToPanel(message));
+        }
+
+        private void AppendLogToPanel(string message)
+        {
+            if (txtLog == null || txtLog.IsDisposed)
+            {
+                return;
+            }
+
+            string time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            txtLog.AppendText("[" + time + "] " + message + Environment.NewLine);
+            txtLog.ScrollToCaret();
+        }
+
+        // ============================================================
+        // 相机连接
+        // ============================================================
+
+        private async void btnConnect_Click(object sender, EventArgs e)
+        {
+            // 已连接则断开
+            if (_cameraController.IsConnected)
+            {
+                StopVideoPreview();
+                _cameraController.Disconnect();
+                _statusTimer.Stop();
+                UpdateConnectionStatus(false);
+                AddLog("已断开相机连接");
+                return;
+            }
+
+            string ip = txtIp != null ? txtIp.Text.Trim() : string.Empty;
+
+            if (string.IsNullOrEmpty(ip))
+            {
+                MessageBox.Show("请输入相机IP地址！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (!IPAddress.TryParse(ip, out _))
+            {
+                MessageBox.Show("请输入有效的IP地址！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            SetConnectingUi(true);
+            AddLog("正在连接相机 " + ip + "...");
+
+            try
+            {
+                bool connected = await _cameraController.ConnectAsync(ip);
+
+                if (connected)
+                {
+                    UpdateConnectionStatus(true);
+                    AddLog("相机 " + ip + " 连接成功！");
+                    _statusTimer.Start();
+
+                    await RefreshDeviceStatusAsync(showBusyLog: false);
+
+                    if (txtStreamUrl != null)
+                    {
+                        txtStreamUrl.Text = _cameraController.BuildStreamUrl(GetChannel(), ip);
+                    }
+                }
+                else
+                {
+                    UpdateConnectionStatus(false);
+                    AddLog("相机 " + ip + " 连接失败，请检查网络连接和IP地址");
+                    MessageBox.Show("连接失败，请检查网络连接和IP地址！", "错误",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateConnectionStatus(false);
+                AddLog("连接异常: " + ex.Message);
+                MessageBox.Show("连接异常: " + ex.Message, "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                SetConnectingUi(false);
+            }
+        }
+
+        private void SetConnectingUi(bool connecting)
+        {
+            btnConnect.Enabled = !connecting;
+            btnConnect.Text = connecting ? "连接中..." : (_cameraController.IsConnected ? "断开连接" : "连接相机");
+        }
+
+        private void UpdateConnectionStatus(bool connected)
+        {
+            if (lblStatus == null || btnConnect == null) return;
+
+            lblStatus.Text = connected ? "状态: 已连接" : "状态: 未连接";
+            lblStatus.ForeColor = connected ? Color.Green : Color.Red;
+            btnConnect.Text = connected ? "断开连接" : "连接相机";
+        }
+
+        // ============================================================
+        // 拉流/推流控制
+        // ============================================================
+
+        private async void btnStartRtsp_Click(object sender, EventArgs e)
+        {
+            await SetRtspEnableAsync(true);
+        }
+
+        private async Task SetRtspEnableAsync(bool enable)
+        {
+            if (!EnsureCameraConnected()) return;
+
+            int channel = GetChannel();
+            AddLog((enable ? "开启" : "关闭") + "通道 " + channel + " 拉流...");
+
+            try
+            {
+                bool success = await _cameraController.SetRtspAsync(channel, enable);
+                AddLog(success
+                    ? (enable ? "开启" : "关闭") + "通道 " + channel + " 拉流成功！"
+                    : (enable ? "开启" : "关闭") + "通道 " + channel + " 拉流失败");
+
+                await RefreshDeviceStatusAsync(showBusyLog: false);
+            }
+            catch (Exception ex)
+            {
+                AddLog("操作异常: " + ex.Message);
+            }
+        }
+
+        private async void btnStartRtmp_Click(object sender, EventArgs e)
+        {
+            if (!EnsureCameraConnected()) return;
+
+            int channel = GetChannel();
+            AddLog("开启通道 " + channel + " 推流...");
+
+            try
+            {
+                string rtmpUrl = txtStreamUrl != null ? txtStreamUrl.Text.Trim() : string.Empty;
+                bool success = await _cameraController.SetRtmpAsync(channel, rtmpUrl, enable: true);
+                AddLog(success ? "开启推流成功！" : "推流失败");
+
+                await RefreshDeviceStatusAsync(showBusyLog: false);
+            }
+            catch (Exception ex)
+            {
+                AddLog("操作异常: " + ex.Message);
+            }
+        }
+
+        private bool EnsureCameraConnected()
+        {
+            if (_cameraController.IsConnected) return true;
+
+            MessageBox.Show("请先连接相机！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+
+        private int GetChannel()
+        {
+            return numChannel != null ? (int)numChannel.Value : 0;
+        }
+
+        // ============================================================
+        // 设备状态刷新（防重入保护位于 CameraController 内部）
+        // ============================================================
+
+        private async void StatusTimer_Tick(object sender, EventArgs e)
+        {
+            if (_cameraController.IsConnected)
+            {
+                await RefreshDeviceStatusAsync(showBusyLog: false);
+            }
+        }
+
+        private async Task RefreshDeviceStatusAsync(bool showBusyLog)
+        {
+            if (!_cameraController.IsConnected) return;
+
+            if (showBusyLog)
+            {
+                AddLog("正在获取设备状态...");
+            }
+
+            try
+            {
+                DeviceStatus status = await _cameraController.TryGetStatusAsync();
+
+                // null = 未连接或上一轮查询未完成（跳过本轮，非错误）
+                if (status == null) return;
+
+                string text = BuildStatusText(status);
+                SafeBeginInvoke(() =>
+                {
+                    if (txtStatusInfo != null && !txtStatusInfo.IsDisposed)
+                    {
+                        txtStatusInfo.Text = text;
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                AddLog("获取状态异常: " + ex.Message);
+            }
+        }
+
+        private static string BuildStatusText(DeviceStatus status)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("=== 设备基本信息 ===");
+            sb.AppendLine("IP地址: " + status.IpAddress);
+            sb.AppendLine("品牌: " + status.Brand);
+            sb.AppendLine("CPU使用率: " + status.CpuUsage.ToString("F1") + "%");
+            sb.AppendLine("内存使用率: " + status.MemoryUsage.ToString("F1") + "%");
+            sb.AppendLine("磁盘总量: " + status.GetFormattedDiskTotal());
+            sb.AppendLine("磁盘可用: " + status.GetFormattedDiskFree());
+            sb.AppendLine("磁盘使用率: " + status.GetDiskUsage().ToString("F1") + "%");
+            sb.AppendLine("录像总数: " + status.TotalVideoCount);
+            return sb.ToString();
+        }
+
+        // ============================================================
+        // 视频预览与YOLO检测
+        // ============================================================
+
+        private async void btnTestStream_Click(object sender, EventArgs e)
+        {
+            if (txtStreamUrl == null) return;
+
+            string url = txtStreamUrl.Text.Trim();
+            if (string.IsNullOrEmpty(url))
+            {
+                MessageBox.Show("请输入视频流地址！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            AddLog("正在测试视频流: " + url);
+
+            try
+            {
+                using (var client = new System.Net.Http.HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromSeconds(5);
+                    using (var response = await client.GetAsync(url,
+                        System.Net.Http.HttpCompletionOption.ResponseHeadersRead))
+                    {
+                        AddLog("测试结果: HTTP状态码 " + (int)response.StatusCode);
+
+                        if (response.Content.Headers.ContentType != null)
+                        {
+                            AddLog("Content-Type: " + response.Content.Headers.ContentType);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AddLog("测试失败: " + ex.Message);
+                MessageBox.Show("测试失败: " + ex.Message, "提示",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+        private void btnStartPreview_Click(object sender, EventArgs e)
+        {
+            StartVideoPreview();
+        }
+
+        private void btnStopPreview_Click(object sender, EventArgs e)
+        {
+            StopVideoPreview();
+            AddLog("================== 预览流程结束 ==================");
+        }
+
+        private void StartVideoPreview()
+        {
+            if (!EnsureCameraConnected()) return;
+
+            try
+            {
+                string rtspUrl = txtStreamUrl != null ? txtStreamUrl.Text.Trim() : string.Empty;
+                if (string.IsNullOrEmpty(rtspUrl))
+                {
+                    rtspUrl = _cameraController.BuildStreamUrl(GetChannel(), GetCurrentIp());
+                }
+
+                AddLog("正在启动视频预览...");
+                AddLog("RTSP流地址: " + rtspUrl);
+
+                EnsureVideoController();
+
+                var options = new DetectionStartupOptions
+                {
+                    ModelPath = ExpandModelPath(AppConfig.Yolo.ModelPath),
+                    ConfidenceThreshold = AppConfig.Yolo.ConfidenceThreshold,
+                    NmsThreshold = AppConfig.Yolo.NmsThreshold,
+                    YoloDebugLog = AppConfig.Yolo.YoloDebugLog,
+                    DetectionResultLog = AppConfig.Yolo.DetectionResultLog,
+                    VisualizerType = ParseVisualizerType(AppConfig.Yolo.VisualizerType),
+                    RtspUrl = rtspUrl
+                };
+
+                _videoController.Start(options);
+
+                if (lblVideoTitle != null)
+                {
+                    lblVideoTitle.Visible = false;
+                }
+
+                AddLog("YOLO检测已启动");
+            }
+            catch (System.IO.FileNotFoundException fnfEx)
+            {
+                AddLog("YOLO模型文件不存在: " + fnfEx.FileName);
+                MessageBox.Show("YOLO模型文件不存在: " + fnfEx.FileName, "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch (Exception ex)
+            {
+                AddLog("视频预览启动失败: " + ex.Message);
+                MessageBox.Show(
+                    "视频预览启动失败！\n\n请检查：\n1. RTSP流地址是否正确\n2. 相机是否开启视频输出\n3. 网络连接是否正常\n\n详细信息: " + ex.Message,
+                    "视频预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void StopVideoPreview()
+        {
+            if (_videoController != null && _videoController.IsRunning)
+            {
+                _videoController.Stop();
+                AddLog("YOLO检测已停止");
+            }
+
+            if (lblVideoTitle != null)
+            {
+                SafeInvokeAction(() => { if (lblVideoTitle.Visible == false) lblVideoTitle.Visible = true; });
+            }
+        }
+
+        private void EnsureVideoController()
+        {
+            if (_videoController != null) return;
+
+            _videoController = new VideoDetectionController(
+                previewSink: OnPreviewFrameReceived,
+                detectionSink: OnDetectionsReceived);
+        }
+
+        private static string ExpandModelPath(string modelPath)
+        {
+            if (string.IsNullOrEmpty(modelPath))
+            {
+                modelPath = "Detection/model/yolo26n.onnx";
+            }
+
+            if (System.IO.Path.IsPathRooted(modelPath))
+            {
+                return modelPath;
+            }
+
+            return System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, modelPath);
+        }
+
+        private static VisualizerType ParseVisualizerType(string value)
+        {
+            return string.Equals(value, "OpenCV", StringComparison.OrdinalIgnoreCase)
+                ? VisualizerType.OpenCV
+                : VisualizerType.YoloBuiltin;
+        }
+
+        private string GetCurrentIp()
+        {
+            string ip = txtIp != null ? txtIp.Text.Trim() : string.Empty;
+            return string.IsNullOrEmpty(ip) ? AppConfig.Current.Connection.DefaultIp : ip;
+        }
+
+        // ============================================================
+        // 控制器回调（后台线程触发，经安全调度后更新UI）
+        // ============================================================
+
+        /// <summary>
+        /// 预览帧回调：Bitmap 所有权移交本方法。
+        /// 经 SafeBeginInvoke 调度到 UI 线程后显示；调度失败时立即释放防止泄漏。
+        /// </summary>
+        private void OnPreviewFrameReceived(Bitmap frame)
+        {
+            if (!SafeBeginInvoke(() => ShowPreviewFrame(frame)))
+            {
+                frame.Dispose(); // 无法送达UI（如窗体正在关闭），就地释放
+            }
+        }
+
+        private void ShowPreviewFrame(Bitmap frame)
+        {
+            if (videoPictureBox == null || videoPictureBox.IsDisposed)
+            {
+                frame.Dispose();
+                return;
+            }
+
+            var old = videoPictureBox.Image;
+            videoPictureBox.Image = frame;
+            old?.Dispose();
+        }
+
+        /// <summary>检测结果回调：保存快照并按需输出统计日志</summary>
+        private void OnDetectionsReceived(List<DetectionResult> detections)
+        {
+            _lastDetections = detections ?? new List<DetectionResult>();
+
+            long count = Interlocked.Increment(ref _detectionCount);
+
+            if (_lastDetections.Count > 0)
+            {
+                var d = _lastDetections[0];
+                LogManager.DetectionResultLog(
+                    $"★检测#{count}: {_lastDetections.Count}个, cls={d.ClassId}({d.ClassName}) " +
+                    $"conf={d.Confidence:F3} pos=({d.X:F0},{d.Y:F0}) size={d.Width:F0}x{d.Height:F0}");
+            }
+            else if (count <= 5 || count % 30 == 0)
+            {
+                LogManager.DetectionResultLog(
+                    $"☆帧#{count}: 0个目标(阈值={AppConfig.Yolo.ConfidenceThreshold})");
+            }
+        }
+
+        // ============================================================
+        // 线程安全UI工具
+        // ============================================================
+
+        /// <summary>
+        /// 安全地把动作调度到UI线程执行。
+        /// 返回 false 表示无法送达（句柄未创建或窗体正在销毁）。
+        /// 绝不抛出因窗体生命周期导致的异常。
+        /// </summary>
+        private bool SafeBeginInvoke(Action action)
+        {
+            try
+            {
+                Control target = this;
+                if (IsDisposed || Disposing || !IsHandleCreated)
+                {
+                    return false;
+                }
+
+                target.BeginInvoke(action);
+                return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        private void SafeInvokeAction(Action action)
+        {
+            try
+            {
+                if (IsDisposed || !IsHandleCreated) return;
+
+                if (InvokeRequired)
+                {
+                    BeginInvoke(action);
+                }
+                else
+                {
+                    action();
+                }
+            }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
+        }
+
+        // ============================================================
+        // 窗体生命周期
+        // ============================================================
+
+        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            // 顺序很重要：
+            // 1. 先停定时器（阻止新的异步轮询）
+            // 2. 停止视频检测链路（有界等待后台线程退出，之后不会再有帧回调）
+            // 3. 清除检测模块的UI日志回调
+            // 4. 释放PictureBox当前图像
+            // 5. 关闭文件日志
+            if (_statusTimer != null)
+            {
+                _statusTimer.Stop();
+                _statusTimer.Dispose();
+                _statusTimer = null;
+            }
+
+            if (_videoController != null)
+            {
+                _videoController.Dispose();
+                _videoController = null;
+            }
+
+            LogManager.ClearUiSink();
+
+            if (videoPictureBox != null)
+            {
+                var img = videoPictureBox.Image;
+                videoPictureBox.Image = null;
+                img?.Dispose();
+            }
+
+            Logger.Close();
+        }
+    }
+}
