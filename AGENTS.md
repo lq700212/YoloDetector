@@ -21,7 +21,7 @@
   - Newtonsoft.Json（配置序列化）
   - System.Net.Http（流地址测试）
 - 构建：`dotnet build YoloDetector.csproj`（见下方"构建与验证命令"），输出到 `bin\Debug\net472\`
-- 已移除 LibVLCSharp/VideoLAN 包（历史方案遗留）；`docs\`、`YOLOTest\` 为历史资料与 Python 测试脚本，不属于编译范围，勿混入业务代码
+- 已移除 LibVLCSharp/VideoLAN 包（历史方案遗留）；`YOLOTest\` 为历史实验区（模型获取指南与 Python 对照测试脚本），不属于编译范围，勿混入业务代码；`docs\` 仅保留 `ARCHITECTURE.md` 一份核心技术文档
 
 ## 目录结构（分层架构，改动须维持边界）
 
