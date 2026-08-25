@@ -30,7 +30,7 @@ namespace YoloDetector.Cameras
         /// <summary>关闭指定通道的 RTMP 推流</summary>
         Task<bool> SetRtmpDisableAsync(int channel);
 
-        /// <summary>获取视频流地址</summary>
-        string GetVideoStreamUrl(int channel, string streamType = "RTSP");
+        /// <summary>获取视频流地址（RTSP）</summary>
+        string GetVideoStreamUrl(int channel);
     }
 }

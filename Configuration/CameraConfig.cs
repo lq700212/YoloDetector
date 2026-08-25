@@ -30,21 +30,12 @@ namespace YoloDetector.Configuration
             [JsonProperty("DefaultIp")]
             public string DefaultIp { get; set; } = "192.168.0.15";
 
-            [JsonProperty("Username")]
-            public string Username { get; set; } = "admin";
-
-            [JsonProperty("Password")]
-            public string Password { get; set; } = "admin";
-
-            /// <summary>HTTP/TCP 连接与请求超时（秒）</summary>
+            /// <summary>连接探测超时（秒）</summary>
             [JsonProperty("TimeoutSeconds")]
             public int TimeoutSeconds { get; set; } = 10;
-
-            [JsonProperty("UserAgent")]
-            public string UserAgent { get; set; } = "YoloDetector/1.0";
         }
 
-        /// <summary>API 接口参数（签名密钥、接口路径）</summary>
+        /// <summary>API 接口参数（当前仅品牌标识；新品牌的通信参数在新客户端实现类内部管理）</summary>
         public class ApiConfig
         {
             [JsonProperty("_说明")]
@@ -53,44 +44,6 @@ namespace YoloDetector.Configuration
             /// <summary>相机品牌标识，决定 CameraApiFactory 创建哪个客户端实现</summary>
             [JsonProperty("CameraBrand")]
             public string CameraBrand { get; set; } = "ANGEHUA";
-
-            /// <summary>API 签名密钥（换品牌时必须修改）</summary>
-            [JsonProperty("SignSecret")]
-            public string SignSecret { get; set; } = "f6fdffe48c908deb0f4c3bd36c032e72";
-
-            [JsonProperty("OldControlApiPath")]
-            public string OldControlApiPath { get; set; } = "/control";
-
-            [JsonProperty("NewControlApiPath")]
-            public string NewControlApiPath { get; set; } = "/xsw/control";
-
-            // ---- 设备状态查询接口路径（不同品牌路径不同）----
-
-            [JsonProperty("IpApiPath")]
-            public string IpApiPath { get; set; } = "/jsonfile/ip";
-
-            [JsonProperty("CpuApiPath")]
-            public string CpuApiPath { get; set; } = "/jsonfile/cpu";
-
-            [JsonProperty("MemApiPath")]
-            public string MemApiPath { get; set; } = "/jsonfile/mem";
-
-            [JsonProperty("DiskTotalApiPath")]
-            public string DiskTotalApiPath { get; set; } = "/jsonfile/disk_total";
-
-            [JsonProperty("DiskFreeApiPath")]
-            public string DiskFreeApiPath { get; set; } = "/jsonfile/disk_free";
-
-            [JsonProperty("TotalCountApiPath")]
-            public string TotalCountApiPath { get; set; } = "/jsonfile/totalcount";
-
-            /// <summary>RTMP 带宽查询路径模板，{channel} 会被替换为通道号</summary>
-            [JsonProperty("RtmpBandwidthApiPath")]
-            public string RtmpBandwidthApiPath { get; set; } = "/jsonfile/rtmpband{channel}";
-
-            /// <summary>RTSP 带宽查询路径模板，{channel} 会被替换为通道号</summary>
-            [JsonProperty("RtspBandwidthApiPath")]
-            public string RtspBandwidthApiPath { get; set; } = "/jsonfile/rtspband{channel}";
         }
 
         /// <summary>视频流参数（RTSP端口、地址模板、通道数上限）</summary>
@@ -123,15 +76,11 @@ namespace YoloDetector.Configuration
             }
         }
 
-        /// <summary>预览参数（预览页面路径、状态刷新间隔）</summary>
+        /// <summary>预览参数</summary>
         public class PreviewConfig
         {
             [JsonProperty("_说明")]
             public string Description { get; set; } = "预览参数";
-
-            /// <summary>相机 Web 预览页面路径</summary>
-            [JsonProperty("PreviewPagePath")]
-            public string PreviewPagePath { get; set; } = "/draw.html";
 
             /// <summary>设备状态自动刷新间隔（毫秒）</summary>
             [JsonProperty("StatusRefreshIntervalMs")]

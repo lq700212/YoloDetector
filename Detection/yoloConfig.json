@@ -10,7 +10,6 @@
   "ModelPath": "Detection/model/yolo26n.onnx",
   "ConfidenceThreshold": 0.2,
   "NmsThreshold": 0.5,
-  "Enabled": true,
   "VisualizerType": "YoloBuiltin",
   "YoloDebugLog": false,
   "DetectionResultLog": false

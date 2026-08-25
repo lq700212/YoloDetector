@@ -1,9 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using OpenCvSharp;
 
-namespace YoloDetector.Detection
+namespace YoloDetection
 {
     /// <summary>
     /// YOLO 检测服务（IDetectionPipeline 默认实现）。
@@ -308,7 +308,8 @@ namespace YoloDetector.Detection
                 detections = processor.Process(detections, width, height) ?? new List<DetectionResult>();
             }
 
-            // 3. 发布结果快照（外部拿到的是独立副本，与内部状态完全隔离）
+            // 3. 发布结果快照（外部拿到的是独立副本，与内部状态完全隔离：
+            //    _lastDetections 与事件列表必须是不同实例，否则外部修改事件参数会污染内部状态）
             var snapshot = new List<DetectionResult>(detections);
             lock (_sync)
             {
@@ -325,7 +326,7 @@ namespace YoloDetector.Detection
             var handler = DetectionsUpdated;
             if (handler != null)
             {
-                handler(this, snapshot);
+                handler(this, new List<DetectionResult>(snapshot));
             }
 
             // 4. 可视化绘制（Draw 返回的新 Mat 所有权移交给订阅者）

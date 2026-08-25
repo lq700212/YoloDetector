@@ -1,6 +1,6 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
-namespace YoloDetector.Detection
+namespace YoloDetection
 {
     /// <summary>COCO 数据集类别表</summary>
     public static class YoloClasses

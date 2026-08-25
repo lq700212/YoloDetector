@@ -1,7 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
-namespace YoloDetector.Detection
+namespace YoloDetection
 {
     /// <summary>
     /// 检测结果后处理器接口（策略模式）。

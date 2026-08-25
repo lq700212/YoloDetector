@@ -3,10 +3,7 @@
   "Connection": {
     "_说明": "相机连接参数",
     "DefaultIp": "192.168.1.188",
-    "Username": "admin",
-    "Password": "admin",
-    "TimeoutSeconds": 10,
-    "UserAgent": "YoloDetector/1.0"
+    "TimeoutSeconds": 10
   },
   "Api": {
     "_说明": "API接口参数 - ANGEHUA品牌特有（仅支持RTSP协议，无HTTP API）",
@@ -20,7 +17,6 @@
   },
   "Preview": {
     "_说明": "预览参数",
-    "PreviewPagePath": "",
     "StatusRefreshIntervalMs": 5000
   }
 }

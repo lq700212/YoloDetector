@@ -2,7 +2,7 @@
 using System.Threading;
 using OpenCvSharp;
 
-namespace YoloDetector.Detection
+namespace YoloDetection
 {
     /// <summary>
     /// 基于 OpenCV VideoCapture 的 RTSP 帧捕获器（IFrameSource 默认实现）。

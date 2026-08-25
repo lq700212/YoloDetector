@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Net;
@@ -9,7 +9,7 @@ using System.Windows.Forms;
 using YoloDetector.App;
 using YoloDetector.Cameras;
 using YoloDetector.Configuration;
-using YoloDetector.Detection;
+using YoloDetection;
 using YoloDetector.Infrastructure.Logging;
 
 namespace YoloDetector.UI
@@ -59,8 +59,6 @@ namespace YoloDetector.UI
                 Interval = AppConfig.Current.Preview.StatusRefreshIntervalMs
             };
             _statusTimer.Tick += StatusTimer_Tick;
-
-            DetectorFactoryRegistry.RegisterFactory(new YoloV26DetectorFactory());
         }
 
         // ============================================================
@@ -85,7 +83,29 @@ namespace YoloDetector.UI
 
             string time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             txtLog.AppendText("[" + time + "] " + message + Environment.NewLine);
-            txtLog.ScrollToCaret();
+
+            // 行数超限时裁掉前一半：AppendText 对长文本是 O(n) 操作且 TextBox
+            // 保留全部历史会持续吃内存，现场长时间运行必须限制（阈值 500 行）
+            const int MaxLogLines = 500;
+            if (txtLog.Lines.Length > MaxLogLines)
+            {
+                // 捕获当前滚动位置，裁剪后恢复，避免日志区自动跳回顶部
+                int scrollIndex = txtLog.GetFirstCharIndexOfCurrentLine();
+                var lines = txtLog.Lines;
+                var kept = new string[lines.Length - MaxLogLines / 2];
+                Array.Copy(lines, MaxLogLines / 2, kept, 0, kept.Length);
+                txtLog.Text = string.Join(Environment.NewLine, kept) + Environment.NewLine;
+                if (scrollIndex >= txtLog.TextLength)
+                {
+                    scrollIndex = Math.Max(0, txtLog.TextLength - 1);
+                }
+                txtLog.SelectionStart = scrollIndex;
+                txtLog.ScrollToCaret();
+            }
+            else
+            {
+                txtLog.ScrollToCaret();
+            }
         }
 
         // ============================================================
@@ -170,8 +190,12 @@ namespace YoloDetector.UI
         {
             if (lblStatus == null || btnConnect == null) return;
 
-            lblStatus.Text = connected ? "状态: 已连接" : "状态: 未连接";
-            lblStatus.ForeColor = connected ? Color.Green : Color.Red;
+            // lblStatus 位于天蓝色顶栏上，红/绿深色在蓝底上对比度差，
+            // 改用浅色调徽标配色（未连接=珊瑚白 / 已连接=薄荷白）
+            lblStatus.Text = connected ? "● 已连接" : "● 未连接";
+            lblStatus.ForeColor = connected
+                ? System.Drawing.Color.FromArgb(223, 247, 232)
+                : System.Drawing.Color.FromArgb(255, 225, 222);
             btnConnect.Text = connected ? "断开连接" : "连接相机";
         }
 
@@ -302,44 +326,6 @@ namespace YoloDetector.UI
         // 视频预览与YOLO检测
         // ============================================================
 
-        private async void btnTestStream_Click(object sender, EventArgs e)
-        {
-            if (txtStreamUrl == null) return;
-
-            string url = txtStreamUrl.Text.Trim();
-            if (string.IsNullOrEmpty(url))
-            {
-                MessageBox.Show("请输入视频流地址！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            AddLog("正在测试视频流: " + url);
-
-            try
-            {
-                using (var client = new System.Net.Http.HttpClient())
-                {
-                    client.Timeout = TimeSpan.FromSeconds(5);
-                    using (var response = await client.GetAsync(url,
-                        System.Net.Http.HttpCompletionOption.ResponseHeadersRead))
-                    {
-                        AddLog("测试结果: HTTP状态码 " + (int)response.StatusCode);
-
-                        if (response.Content.Headers.ContentType != null)
-                        {
-                            AddLog("Content-Type: " + response.Content.Headers.ContentType);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                AddLog("测试失败: " + ex.Message);
-                MessageBox.Show("测试失败: " + ex.Message, "提示",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-
         private void btnStartPreview_Click(object sender, EventArgs e)
         {
             StartVideoPreview();
@@ -376,7 +362,10 @@ namespace YoloDetector.UI
                     YoloDebugLog = AppConfig.Yolo.YoloDebugLog,
                     DetectionResultLog = AppConfig.Yolo.DetectionResultLog,
                     VisualizerType = ParseVisualizerType(AppConfig.Yolo.VisualizerType),
-                    RtspUrl = rtspUrl
+                    RtspUrl = rtspUrl,
+                    // 注入 UI 日志回调：检测线程的异常/过程日志同步显示到界面面板，
+                    // 否则现场排查"为什么检测不到"只能翻日志文件
+                    LogSink = msg => SafeBeginInvoke(() => AppendLogToPanel(msg))
                 };
 
                 _videoController.Start(options);
@@ -413,7 +402,7 @@ namespace YoloDetector.UI
 
             if (lblVideoTitle != null)
             {
-                SafeInvokeAction(() => { if (lblVideoTitle.Visible == false) lblVideoTitle.Visible = true; });
+                SafeBeginInvoke(() => { if (lblVideoTitle.Visible == false) lblVideoTitle.Visible = true; });
             }
         }
 
@@ -534,25 +523,6 @@ namespace YoloDetector.UI
             {
                 return false;
             }
-        }
-
-        private void SafeInvokeAction(Action action)
-        {
-            try
-            {
-                if (IsDisposed || !IsHandleCreated) return;
-
-                if (InvokeRequired)
-                {
-                    BeginInvoke(action);
-                }
-                else
-                {
-                    action();
-                }
-            }
-            catch (ObjectDisposedException) { }
-            catch (InvalidOperationException) { }
         }
 
         // ============================================================

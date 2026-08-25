@@ -1,488 +1,571 @@
-using System.Windows.Forms;
+using System.Drawing;
+using Sunny.UI;
 using YoloDetector.Configuration;
 
 namespace YoloDetector.UI
 {
     /// <summary>
-    /// 主窗体布局代码（设计器风格，partial 拆分自 MainForm）。
+    /// 主窗体布局代码（partial 拆分自 MainForm，SunnyUI 小清新风格）。
+    ///
+    /// 整体布局（ASCII 图，AI 改界面必读）：
+    /// ┌──────────────────────────────────────────────────────────────┐
+    /// │ headerBar（天蓝 #54B2EC，Dock=Top，h=56）＝ 菜单栏            │
+    /// │   ● YOLO 实时人员检测系统              lblStatus(连接状态)     │
+    /// ├──────────────┬───────────────────────────────────────────────┤
+    /// │ leftPanel    │ videoPanel（黑底视频区，72%）                  │
+    /// │ (浅蓝灰底)   │   └ videoPictureBox(Zoom) + lblVideoTitle     │
+    /// │ ┌卡片①相机连接┐                                              │
+    /// │ │lblTitle     │───────────────────────────────────────────────│
+    /// │ │lblIp txtIp  │ logPanel（25%）                               │
+    /// │ │btnConnect   │   ├ lblLog                                    │
+    /// │ └────────────┘   └ txtLog(UILogView，自动限500行)            │
+    /// │ ┌卡片②视频流──┐                                              │
+    /// │ │lblStream    │                                               │
+    /// │ │lblUrl       │                                               │
+    /// │ │txtStreamUrl │                                               │
+    /// │ └────────────┘                                               │
+    /// │ ┌卡片③推拉流──┐                                              │
+    /// │ │lblControl   │                                               │
+    /// │ │通道 numChn  │                                               │
+    /// │ │[开始预览][停止预览]                                          │
+    /// │ │[开启拉流][开启推流]                                          │
+    /// │ └────────────┘                                               │
+    /// │ ┌卡片④设备状态(Fill)                                         │
+    /// │ │lblInfo      │                                               │
+    /// │ │txtStatusInfo│                                               │
+    /// │ └────────────┘                                               │
+    /// └──────────────┴───────────────────────────────────────────────┘
+    ///
+    /// 配色约定（小清新色板，改色统一在这里找）：
+    ///   主色天蓝      #54B2EC  顶栏/主按钮
+    ///   主色 hover    #7AC6F1 / press #3D9FDB
+    ///   页面底色      #EEF4F8  左栏与整体背景
+    ///   卡片白        #FFFFFF  边框 #DCE7EE
+    ///   标题字        #35505F  正文 #5E7A89
+    ///   成功绿 #58C28E / 危险红 #ED7168 / 警示橙 #F2A65A
+    ///
+    /// 控件选型说明：
+    ///   - 按钮全部 UIButton（圆角、悬停变色）；输入框 UITextBox（含水印提示）
+    ///   - 日志区原生 TextBox（SunnyUI 3.9.8 已移除 UILogView），
+    ///     500 行自动裁剪逻辑在 MainForm.AppendLogToPanel 中
+    ///   - 视频 PictureBox 与设备状态 TextBox 保留原生控件：
+    ///     前者是逐帧显示的性能关键路径，后者只需多行只读文本
     /// </summary>
     public partial class MainForm
     {
+        // ---- 小清新色板（集中定义，改主题色只需要动这里）----
+        private static readonly Color PrimaryColor = Color.FromArgb(84, 178, 236);    // 天蓝主色
+        private static readonly Color PrimaryHover = Color.FromArgb(122, 198, 241);   // 悬停浅一档
+        private static readonly Color PrimaryPress = Color.FromArgb(61, 159, 219);    // 按下深一档
+        private static readonly Color PageBackColor = Color.FromArgb(238, 244, 248);  // 页面淡蓝灰底
+        private static readonly Color CardBorderColor = Color.FromArgb(220, 231, 238);// 卡片描边
+        private static readonly Color TitleTextColor = Color.FromArgb(53, 80, 95);    // 分组标题字
+        private static readonly Color BodyTextColor = Color.FromArgb(94, 122, 137);   // 正文字
+        private static readonly Color SuccessGreen = Color.FromArgb(88, 194, 142);    // 开始类按钮
+        private static readonly Color DangerRed = Color.FromArgb(237, 113, 104);      // 停止类按钮
+
         private void InitializeComponent()
         {
+            this.headerBar = new System.Windows.Forms.Panel();
+            this.lblAppTitle = new UILabel();
+            this.lblStatus = new UILabel();
             this.layoutTable = new System.Windows.Forms.TableLayoutPanel();
-            this.connectPanel = new System.Windows.Forms.Panel();
-            this.lblTitle = new System.Windows.Forms.Label();
-            this.lblIp = new System.Windows.Forms.Label();
-            this.txtIp = new System.Windows.Forms.TextBox();
-            this.lblStatus = new System.Windows.Forms.Label();
-            this.btnConnect = new System.Windows.Forms.Button();
-            this.streamPanel = new System.Windows.Forms.Panel();
-            this.lblStream = new System.Windows.Forms.Label();
-            this.lblUrl = new System.Windows.Forms.Label();
-            this.txtStreamUrl = new System.Windows.Forms.TextBox();
-            this.btnTestStream = new System.Windows.Forms.Button();
-            this.controlPanel = new System.Windows.Forms.Panel();
-            this.lblControl = new System.Windows.Forms.Label();
-            this.lblChannel = new System.Windows.Forms.Label();
-            this.numChannel = new System.Windows.Forms.NumericUpDown();
-            this.btnStartPreview = new System.Windows.Forms.Button();
-            this.btnStopPreview = new System.Windows.Forms.Button();
-            this.btnStartRtsp = new System.Windows.Forms.Button();
-            this.btnStartRtmp = new System.Windows.Forms.Button();
-            this.infoPanel = new System.Windows.Forms.Panel();
-            this.lblInfo = new System.Windows.Forms.Label();
+            this.leftPanel = new System.Windows.Forms.Panel();
+            this.cardConnect = new UIPanel();
+            this.lblTitle = new UILabel();
+            this.lblIp = new UILabel();
+            this.txtIp = new UITextBox();
+            this.btnConnect = new UIButton();
+            this.cardStream = new UIPanel();
+            this.lblStream = new UILabel();
+            this.lblUrl = new UILabel();
+            this.txtStreamUrl = new UITextBox();
+            this.cardControl = new UIPanel();
+            this.lblControl = new UILabel();
+            this.lblChannel = new UILabel();
+            this.numChannel = new UIIntegerUpDown();
+            this.btnStartPreview = new UIButton();
+            this.btnStopPreview = new UIButton();
+            this.btnStartRtsp = new UIButton();
+            this.btnStartRtmp = new UIButton();
+            this.cardInfo = new UIPanel();
+            this.lblInfo = new UILabel();
             this.txtStatusInfo = new System.Windows.Forms.TextBox();
             this.rightPanel = new System.Windows.Forms.Panel();
             this.rightTable = new System.Windows.Forms.TableLayoutPanel();
             this.videoPanel = new System.Windows.Forms.Panel();
             this.videoPictureBox = new System.Windows.Forms.PictureBox();
-            this.lblVideoTitle = new System.Windows.Forms.Label();
-            this.logPanel = new System.Windows.Forms.Panel();
-            this.lblLog = new System.Windows.Forms.Label();
+            this.lblVideoTitle = new UILabel();
+            this.logPanel = new UIPanel();
+            this.lblLog = new UILabel();
             this.txtLog = new System.Windows.Forms.TextBox();
+            this.headerBar.SuspendLayout();
             this.layoutTable.SuspendLayout();
-            this.connectPanel.SuspendLayout();
-            this.streamPanel.SuspendLayout();
-            this.controlPanel.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.numChannel)).BeginInit();
-            this.infoPanel.SuspendLayout();
+            this.leftPanel.SuspendLayout();
+            this.cardConnect.SuspendLayout();
+            this.cardStream.SuspendLayout();
+            this.cardControl.SuspendLayout();
+            this.cardInfo.SuspendLayout();
             this.rightPanel.SuspendLayout();
             this.rightTable.SuspendLayout();
             this.videoPanel.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.videoPictureBox)).BeginInit();
             this.logPanel.SuspendLayout();
             this.SuspendLayout();
             //
-            // layoutTable
+            // headerBar —— 顶部天蓝色菜单栏（用户要求的视觉核心）
+            //
+            this.headerBar.BackColor = PrimaryColor;
+            this.headerBar.Controls.Add(this.lblAppTitle);
+            this.headerBar.Controls.Add(this.lblStatus);
+            this.headerBar.Dock = System.Windows.Forms.DockStyle.Top;
+            this.headerBar.Location = new System.Drawing.Point(0, 0);
+            this.headerBar.Name = "headerBar";
+            this.headerBar.Size = new System.Drawing.Size(1280, 56);
+            this.headerBar.TabIndex = 0;
+            //
+            // lblAppTitle —— 应用名（顶栏左侧）
+            //
+            this.lblAppTitle.AutoSize = true;
+            this.lblAppTitle.Font = new Font("微软雅黑", 13F, FontStyle.Bold);
+            this.lblAppTitle.ForeColor = Color.White;
+            this.lblAppTitle.Location = new System.Drawing.Point(18, 14);
+            this.lblAppTitle.Name = "lblAppTitle";
+            this.lblAppTitle.Text = "YOLO 实时人员检测系统";
+            //
+            // lblStatus —— 连接状态徽标（顶栏右侧，Anchor 右对齐；
+            // MainForm.UpdateConnectionStatus 会改它的 Text/ForeColor）
+            //
+            this.lblStatus.AutoSize = true;
+            this.lblStatus.Font = new Font("微软雅黑", 10.5F, FontStyle.Bold);
+            this.lblStatus.ForeColor = Color.FromArgb(255, 225, 222);
+            this.lblStatus.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
+            this.lblStatus.Location = new System.Drawing.Point(1120, 18);
+            this.lblStatus.Name = "lblStatus";
+            this.lblStatus.Text = "● 未连接";
+            //
+            // layoutTable —— 主体两列：左侧控制面板 / 右侧视频+日志
             //
             this.layoutTable.ColumnCount = 2;
-            this.layoutTable.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 35F));
-            this.layoutTable.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 65F));
-            this.layoutTable.Controls.Add(this.connectPanel, 0, 0);
-            this.layoutTable.Controls.Add(this.streamPanel, 0, 1);
-            this.layoutTable.Controls.Add(this.controlPanel, 0, 2);
-            this.layoutTable.Controls.Add(this.infoPanel, 0, 3);
+            this.layoutTable.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 330F));
+            this.layoutTable.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.layoutTable.Controls.Add(this.leftPanel, 0, 0);
             this.layoutTable.Controls.Add(this.rightPanel, 1, 0);
             this.layoutTable.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.layoutTable.GrowStyle = System.Windows.Forms.TableLayoutPanelGrowStyle.FixedSize;
-            this.layoutTable.Location = new System.Drawing.Point(0, 0);
+            this.layoutTable.Location = new System.Drawing.Point(0, 56);
             this.layoutTable.Name = "layoutTable";
-            this.layoutTable.RowCount = 4;
-            this.layoutTable.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 80F));
-            this.layoutTable.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 80F));
-            this.layoutTable.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 80F));
+            this.layoutTable.RowCount = 1;
             this.layoutTable.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.layoutTable.Size = new System.Drawing.Size(1084, 711);
-            this.layoutTable.TabIndex = 0;
+            this.layoutTable.Size = new System.Drawing.Size(1280, 744);
+            this.layoutTable.TabIndex = 1;
             //
-            // connectPanel
+            // leftPanel —— 左栏容器（淡蓝灰底）
             //
-            this.connectPanel.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(247)))), ((int)(((byte)(250)))));
-            this.connectPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.connectPanel.Controls.Add(this.lblTitle);
-            this.connectPanel.Controls.Add(this.lblIp);
-            this.connectPanel.Controls.Add(this.txtIp);
-            this.connectPanel.Controls.Add(this.lblStatus);
-            this.connectPanel.Controls.Add(this.btnConnect);
-            this.connectPanel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.connectPanel.Location = new System.Drawing.Point(3, 3);
-            this.connectPanel.Name = "connectPanel";
-            this.connectPanel.Size = new System.Drawing.Size(373, 74);
-            this.connectPanel.TabIndex = 0;
+            this.leftPanel.AutoScroll = true;
+            this.leftPanel.BackColor = PageBackColor;
+            this.leftPanel.Controls.Add(this.cardConnect);
+            this.leftPanel.Controls.Add(this.cardStream);
+            this.leftPanel.Controls.Add(this.cardControl);
+            this.leftPanel.Controls.Add(this.cardInfo);
+            this.leftPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.leftPanel.Name = "leftPanel";
+            this.leftPanel.Padding = new System.Windows.Forms.Padding(12, 10, 12, 10);
+            this.leftPanel.Size = new System.Drawing.Size(330, 744);
+            //
+            // cardConnect —— 卡片①：相机连接
+            //
+            StyleCard(this.cardConnect, "cardConnect");
+            this.cardConnect.Controls.Add(this.lblTitle);
+            this.cardConnect.Controls.Add(this.lblIp);
+            this.cardConnect.Controls.Add(this.txtIp);
+            this.cardConnect.Controls.Add(this.btnConnect);
+            this.cardConnect.Location = new System.Drawing.Point(12, 10);
+            this.cardConnect.Size = new System.Drawing.Size(306, 152);
             //
             // lblTitle
             //
-            this.lblTitle.AutoSize = true;
-            this.lblTitle.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Bold);
-            this.lblTitle.Location = new System.Drawing.Point(10, 10);
-            this.lblTitle.Name = "lblTitle";
-            this.lblTitle.Size = new System.Drawing.Size(106, 22);
-            this.lblTitle.TabIndex = 0;
-            this.lblTitle.Text = "相机连接配置";
+            StyleCardTitle(this.lblTitle, "相机连接");
+            this.lblTitle.Location = new System.Drawing.Point(16, 14);
             //
-            // lblIp
+            // lblIp —— 与 txtIp（y=54,h=32,中心70）垂直居中：9.5F 标签渲染高约18，y=70-9=61
             //
-            this.lblIp.AutoSize = true;
-            this.lblIp.Location = new System.Drawing.Point(10, 35);
-            this.lblIp.Name = "lblIp";
-            this.lblIp.Size = new System.Drawing.Size(47, 12);
-            this.lblIp.TabIndex = 1;
-            this.lblIp.Text = "相机IP:";
+            StyleBodyLabel(this.lblIp, "相机IP");
+            this.lblIp.Location = new System.Drawing.Point(16, 61);
             //
-            // txtIp
+            // txtIp —— IP 输入框（带水印示例）
             //
-            this.txtIp.Font = new System.Drawing.Font("微软雅黑", 10F);
-            this.txtIp.Location = new System.Drawing.Point(70, 32);
+            this.txtIp.Font = new Font("微软雅黑", 10F);
+            this.txtIp.Location = new System.Drawing.Point(78, 54);
             this.txtIp.Name = "txtIp";
-            this.txtIp.Size = new System.Drawing.Size(150, 25);
-            this.txtIp.TabIndex = 2;
+            this.txtIp.Size = new System.Drawing.Size(212, 32);
             this.txtIp.Text = AppConfig.Current.Connection.DefaultIp;
+            this.txtIp.Watermark = "如 192.168.0.15";
             //
-            // lblStatus
+            // btnConnect —— 主操作按钮（天蓝大按钮）
             //
-            this.lblStatus.AutoSize = true;
-            this.lblStatus.Font = new System.Drawing.Font("微软雅黑", 10F, System.Drawing.FontStyle.Bold);
-            this.lblStatus.ForeColor = System.Drawing.Color.Red;
-            this.lblStatus.Location = new System.Drawing.Point(230, 15);
-            this.lblStatus.Name = "lblStatus";
-            this.lblStatus.Size = new System.Drawing.Size(87, 19);
-            this.lblStatus.TabIndex = 3;
-            this.lblStatus.Text = "状态: 未连接";
-            //
-            // btnConnect
-            //
-            this.btnConnect.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(122)))), ((int)(((byte)(204)))));
-            this.btnConnect.Font = new System.Drawing.Font("微软雅黑", 10F);
-            this.btnConnect.ForeColor = System.Drawing.Color.White;
-            this.btnConnect.Location = new System.Drawing.Point(230, 35);
+            StylePrimaryButton(this.btnConnect);
+            this.btnConnect.Font = new Font("微软雅黑", 10.5F);
+            this.btnConnect.Location = new System.Drawing.Point(16, 100);
             this.btnConnect.Name = "btnConnect";
-            this.btnConnect.Size = new System.Drawing.Size(120, 25);
-            this.btnConnect.TabIndex = 4;
+            this.btnConnect.Size = new System.Drawing.Size(274, 36);
+            this.btnConnect.TabIndex = 1;
             this.btnConnect.Text = "连接相机";
-            this.btnConnect.UseVisualStyleBackColor = false;
             this.btnConnect.Click += new System.EventHandler(this.btnConnect_Click);
             //
-            // streamPanel
+            // cardStream —— 卡片②：视频流配置
             //
-            this.streamPanel.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(247)))), ((int)(((byte)(250)))));
-            this.streamPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.streamPanel.Controls.Add(this.lblStream);
-            this.streamPanel.Controls.Add(this.lblUrl);
-            this.streamPanel.Controls.Add(this.txtStreamUrl);
-            this.streamPanel.Controls.Add(this.btnTestStream);
-            this.streamPanel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.streamPanel.Location = new System.Drawing.Point(3, 63);
-            this.streamPanel.Name = "streamPanel";
-            this.streamPanel.Size = new System.Drawing.Size(373, 74);
-            this.streamPanel.TabIndex = 1;
+            StyleCard(this.cardStream, "cardStream");
+            this.cardStream.Controls.Add(this.lblStream);
+            this.cardStream.Controls.Add(this.lblUrl);
+            this.cardStream.Controls.Add(this.txtStreamUrl);
+            this.cardStream.Location = new System.Drawing.Point(12, 172);
+            this.cardStream.Size = new System.Drawing.Size(306, 100);
             //
             // lblStream
             //
-            this.lblStream.AutoSize = true;
-            this.lblStream.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Bold);
-            this.lblStream.Location = new System.Drawing.Point(10, 10);
-            this.lblStream.Name = "lblStream";
-            this.lblStream.Size = new System.Drawing.Size(90, 22);
-            this.lblStream.TabIndex = 0;
-            this.lblStream.Text = "视频流配置";
+            StyleCardTitle(this.lblStream, "视频流配置");
+            this.lblStream.Location = new System.Drawing.Point(16, 14);
             //
-            // lblUrl
+            // lblUrl —— 与 txtStreamUrl（y=50,h=32,中心66）垂直居中：y=66-9=57
             //
-            this.lblUrl.AutoSize = true;
-            this.lblUrl.Location = new System.Drawing.Point(10, 40);
-            this.lblUrl.Name = "lblUrl";
-            this.lblUrl.Size = new System.Drawing.Size(47, 12);
-            this.lblUrl.TabIndex = 1;
-            this.lblUrl.Text = "流地址:";
+            StyleBodyLabel(this.lblUrl, "流地址");
+            this.lblUrl.Location = new System.Drawing.Point(16, 57);
             //
             // txtStreamUrl
             //
-            this.txtStreamUrl.Font = new System.Drawing.Font("微软雅黑", 9F);
-            this.txtStreamUrl.Location = new System.Drawing.Point(70, 37);
+            this.txtStreamUrl.Font = new Font("微软雅黑", 9F);
+            this.txtStreamUrl.Location = new System.Drawing.Point(78, 50);
             this.txtStreamUrl.Name = "txtStreamUrl";
-            this.txtStreamUrl.Size = new System.Drawing.Size(300, 23);
-            this.txtStreamUrl.TabIndex = 2;
+            this.txtStreamUrl.Size = new System.Drawing.Size(212, 32);
             this.txtStreamUrl.Text = AppConfig.Current.Stream.GetRtspUrl(AppConfig.Current.Connection.DefaultIp, 0);
+            this.txtStreamUrl.Watermark = "rtsp://ip:554/stream0";
             //
-            // btnTestStream
+            // cardControl —— 卡片③：预览与推拉流控制
             //
-            this.btnTestStream.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(240)))), ((int)(((byte)(173)))), ((int)(((byte)(78)))));
-            this.btnTestStream.Font = new System.Drawing.Font("微软雅黑", 9F);
-            this.btnTestStream.ForeColor = System.Drawing.Color.White;
-            this.btnTestStream.Location = new System.Drawing.Point(380, 35);
-            this.btnTestStream.Name = "btnTestStream";
-            this.btnTestStream.Size = new System.Drawing.Size(70, 30);
-            this.btnTestStream.TabIndex = 3;
-            this.btnTestStream.Text = "测试流";
-            this.btnTestStream.UseVisualStyleBackColor = false;
-            this.btnTestStream.Click += new System.EventHandler(this.btnTestStream_Click);
-            //
-            // controlPanel
-            //
-            this.controlPanel.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(247)))), ((int)(((byte)(250)))));
-            this.controlPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.controlPanel.Controls.Add(this.lblControl);
-            this.controlPanel.Controls.Add(this.lblChannel);
-            this.controlPanel.Controls.Add(this.numChannel);
-            this.controlPanel.Controls.Add(this.btnStartPreview);
-            this.controlPanel.Controls.Add(this.btnStopPreview);
-            this.controlPanel.Controls.Add(this.btnStartRtsp);
-            this.controlPanel.Controls.Add(this.btnStartRtmp);
-            this.controlPanel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.controlPanel.Location = new System.Drawing.Point(3, 143);
-            this.controlPanel.Name = "controlPanel";
-            this.controlPanel.Size = new System.Drawing.Size(373, 74);
-            this.controlPanel.TabIndex = 2;
+            StyleCard(this.cardControl, "cardControl");
+            this.cardControl.Controls.Add(this.lblControl);
+            this.cardControl.Controls.Add(this.lblChannel);
+            this.cardControl.Controls.Add(this.numChannel);
+            this.cardControl.Controls.Add(this.btnStartPreview);
+            this.cardControl.Controls.Add(this.btnStopPreview);
+            this.cardControl.Controls.Add(this.btnStartRtsp);
+            this.cardControl.Controls.Add(this.btnStartRtmp);
+            this.cardControl.Location = new System.Drawing.Point(12, 282);
+            this.cardControl.Size = new System.Drawing.Size(306, 196);
             //
             // lblControl
             //
-            this.lblControl.AutoSize = true;
-            this.lblControl.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Bold);
-            this.lblControl.Location = new System.Drawing.Point(10, 10);
-            this.lblControl.Name = "lblControl";
-            this.lblControl.Size = new System.Drawing.Size(90, 22);
-            this.lblControl.TabIndex = 0;
-            this.lblControl.Text = "推拉流控制";
+            StyleCardTitle(this.lblControl, "预览与推拉流");
+            this.lblControl.Location = new System.Drawing.Point(16, 14);
             //
-            // lblChannel
+            // lblChannel —— 与 numChannel（y=54,h=32,中心70）垂直居中：y=70-9=61
             //
-            this.lblChannel.AutoSize = true;
-            this.lblChannel.Location = new System.Drawing.Point(10, 40);
-            this.lblChannel.Name = "lblChannel";
-            this.lblChannel.Size = new System.Drawing.Size(35, 12);
-            this.lblChannel.TabIndex = 1;
-            this.lblChannel.Text = "通道:";
+            StyleBodyLabel(this.lblChannel, "通道");
+            this.lblChannel.Location = new System.Drawing.Point(16, 61);
             //
-            // numChannel
+            // numChannel —— 通道选择（上限取自品牌配置 MaxChannel）
             //
-            this.numChannel.Location = new System.Drawing.Point(50, 37);
-            this.numChannel.Maximum = new decimal(new int[] {
-            AppConfig.Current.Stream.MaxChannel,
-            0,
-            0,
-            0});
+            this.numChannel.Font = new Font("微软雅黑", 10F);
+            this.numChannel.Location = new System.Drawing.Point(66, 54);
+            // UIIntegerUpDown 的 Maximum 为 Double 类型，直接隐式转换即可
+            this.numChannel.Maximum = AppConfig.Current.Stream.MaxChannel;
             this.numChannel.Name = "numChannel";
-            this.numChannel.Size = new System.Drawing.Size(60, 21);
-            this.numChannel.TabIndex = 2;
+            this.numChannel.Size = new System.Drawing.Size(100, 32);
+            this.numChannel.Value = 0;
             //
-            // btnStartPreview
+            // btnStartPreview —— 绿色系开始按钮（2×2 网格排布）
             //
-            this.btnStartPreview.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(92)))), ((int)(((byte)(184)))), ((int)(((byte)(92)))));
-            this.btnStartPreview.Font = new System.Drawing.Font("微软雅黑", 9F);
-            this.btnStartPreview.ForeColor = System.Drawing.Color.White;
-            this.btnStartPreview.Location = new System.Drawing.Point(120, 35);
+            StyleButton(this.btnStartPreview, SuccessGreen);
+            this.btnStartPreview.Font = new Font("微软雅黑", 9.5F);
+            this.btnStartPreview.Location = new System.Drawing.Point(16, 102);
             this.btnStartPreview.Name = "btnStartPreview";
-            this.btnStartPreview.Size = new System.Drawing.Size(80, 30);
-            this.btnStartPreview.TabIndex = 3;
+            this.btnStartPreview.Size = new System.Drawing.Size(136, 36);
+            this.btnStartPreview.TabIndex = 1;
             this.btnStartPreview.Text = "开始预览";
-            this.btnStartPreview.UseVisualStyleBackColor = false;
             this.btnStartPreview.Click += new System.EventHandler(this.btnStartPreview_Click);
             //
             // btnStopPreview
             //
-            this.btnStopPreview.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(217)))), ((int)(((byte)(83)))), ((int)(((byte)(79)))));
-            this.btnStopPreview.Font = new System.Drawing.Font("微软雅黑", 9F);
-            this.btnStopPreview.ForeColor = System.Drawing.Color.White;
-            this.btnStopPreview.Location = new System.Drawing.Point(210, 35);
+            StyleButton(this.btnStopPreview, DangerRed);
+            this.btnStopPreview.Font = new Font("微软雅黑", 9.5F);
+            this.btnStopPreview.Location = new System.Drawing.Point(160, 102);
             this.btnStopPreview.Name = "btnStopPreview";
-            this.btnStopPreview.Size = new System.Drawing.Size(80, 30);
-            this.btnStopPreview.TabIndex = 4;
+            this.btnStopPreview.Size = new System.Drawing.Size(136, 36);
+            this.btnStopPreview.TabIndex = 2;
             this.btnStopPreview.Text = "停止预览";
-            this.btnStopPreview.UseVisualStyleBackColor = false;
             this.btnStopPreview.Click += new System.EventHandler(this.btnStopPreview_Click);
             //
             // btnStartRtsp
             //
-            this.btnStartRtsp.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(92)))), ((int)(((byte)(184)))), ((int)(((byte)(92)))));
-            this.btnStartRtsp.Font = new System.Drawing.Font("微软雅黑", 9F);
-            this.btnStartRtsp.ForeColor = System.Drawing.Color.White;
-            this.btnStartRtsp.Location = new System.Drawing.Point(300, 35);
+            StyleButton(this.btnStartRtsp, SuccessGreen);
+            this.btnStartRtsp.Font = new Font("微软雅黑", 9.5F);
+            this.btnStartRtsp.Location = new System.Drawing.Point(16, 148);
             this.btnStartRtsp.Name = "btnStartRtsp";
-            this.btnStartRtsp.Size = new System.Drawing.Size(80, 30);
-            this.btnStartRtsp.TabIndex = 5;
+            this.btnStartRtsp.Size = new System.Drawing.Size(136, 36);
+            this.btnStartRtsp.TabIndex = 3;
             this.btnStartRtsp.Text = "开启拉流";
-            this.btnStartRtsp.UseVisualStyleBackColor = false;
             this.btnStartRtsp.Click += new System.EventHandler(this.btnStartRtsp_Click);
             //
             // btnStartRtmp
             //
-            this.btnStartRtmp.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(92)))), ((int)(((byte)(184)))), ((int)(((byte)(92)))));
-            this.btnStartRtmp.Font = new System.Drawing.Font("微软雅黑", 9F);
-            this.btnStartRtmp.ForeColor = System.Drawing.Color.White;
-            this.btnStartRtmp.Location = new System.Drawing.Point(390, 35);
+            StyleButton(this.btnStartRtmp, PrimaryColor);
+            this.btnStartRtmp.Font = new Font("微软雅黑", 9.5F);
+            this.btnStartRtmp.Location = new System.Drawing.Point(160, 148);
             this.btnStartRtmp.Name = "btnStartRtmp";
-            this.btnStartRtmp.Size = new System.Drawing.Size(80, 30);
-            this.btnStartRtmp.TabIndex = 6;
+            this.btnStartRtmp.Size = new System.Drawing.Size(136, 36);
+            this.btnStartRtmp.TabIndex = 4;
             this.btnStartRtmp.Text = "开启推流";
-            this.btnStartRtmp.UseVisualStyleBackColor = false;
             this.btnStartRtmp.Click += new System.EventHandler(this.btnStartRtmp_Click);
             //
-            // infoPanel
+            // cardInfo —— 卡片④：设备状态信息（占满剩余高度）
             //
-            this.infoPanel.BackColor = System.Drawing.Color.White;
-            this.infoPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.infoPanel.Controls.Add(this.lblInfo);
-            this.infoPanel.Controls.Add(this.txtStatusInfo);
-            this.infoPanel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.infoPanel.Location = new System.Drawing.Point(3, 223);
-            this.infoPanel.Name = "infoPanel";
-            this.infoPanel.Size = new System.Drawing.Size(373, 485);
-            this.infoPanel.TabIndex = 3;
+            StyleCard(this.cardInfo, "cardInfo");
+            this.cardInfo.Controls.Add(this.lblInfo);
+            this.cardInfo.Controls.Add(this.txtStatusInfo);
+            this.cardInfo.Location = new System.Drawing.Point(12, 488);
+            this.cardInfo.Size = new System.Drawing.Size(306, 246);
+            this.cardInfo.Anchor = System.Windows.Forms.AnchorStyles.Top |
+                System.Windows.Forms.AnchorStyles.Bottom |
+                System.Windows.Forms.AnchorStyles.Left |
+                System.Windows.Forms.AnchorStyles.Right;
             //
             // lblInfo
             //
-            this.lblInfo.AutoSize = true;
-            this.lblInfo.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Bold);
-            this.lblInfo.Location = new System.Drawing.Point(10, 10);
-            this.lblInfo.Name = "lblInfo";
-            this.lblInfo.Size = new System.Drawing.Size(106, 22);
-            this.lblInfo.TabIndex = 0;
-            this.lblInfo.Text = "设备状态信息";
+            StyleCardTitle(this.lblInfo, "设备状态");
+            this.lblInfo.Location = new System.Drawing.Point(16, 14);
             //
-            // txtStatusInfo
+            // txtStatusInfo —— 多行只读文本（保留原生 TextBox，仅调外观）
             //
-            this.txtStatusInfo.BackColor = System.Drawing.Color.White;
-            this.txtStatusInfo.Font = new System.Drawing.Font("Consolas", 9F);
-            this.txtStatusInfo.Location = new System.Drawing.Point(10, 40);
+            this.txtStatusInfo.Anchor = System.Windows.Forms.AnchorStyles.Top |
+                System.Windows.Forms.AnchorStyles.Bottom |
+                System.Windows.Forms.AnchorStyles.Left |
+                System.Windows.Forms.AnchorStyles.Right;
+            this.txtStatusInfo.BackColor = Color.White;
+            this.txtStatusInfo.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.txtStatusInfo.Font = new Font("Consolas", 9F);
+            this.txtStatusInfo.ForeColor = TitleTextColor;
+            this.txtStatusInfo.Location = new System.Drawing.Point(18, 50);
             this.txtStatusInfo.Multiline = true;
             this.txtStatusInfo.Name = "txtStatusInfo";
             this.txtStatusInfo.ReadOnly = true;
             this.txtStatusInfo.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.txtStatusInfo.Size = new System.Drawing.Size(360, 450);
-            this.txtStatusInfo.TabIndex = 1;
+            this.txtStatusInfo.Size = new System.Drawing.Size(270, 134);
             //
-            // rightPanel
+            // rightPanel —— 右侧容器
             //
-            this.rightPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.rightPanel.Controls.Add(this.rightTable);
             this.rightPanel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.rightPanel.Location = new System.Drawing.Point(382, 3);
             this.rightPanel.Name = "rightPanel";
-            this.layoutTable.SetRowSpan(this.rightPanel, 4);
-            this.rightPanel.Size = new System.Drawing.Size(699, 705);
-            this.rightPanel.TabIndex = 4;
+            this.rightPanel.Padding = new System.Windows.Forms.Padding(0, 10, 12, 10);
+            this.rightPanel.Size = new System.Drawing.Size(950, 744);
             //
-            // rightTable
+            // rightTable —— 上 75% 视频 / 下 25% 日志
             //
+            this.rightTable.ColumnCount = 1;
             this.rightTable.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
-            this.rightTable.Controls.Add(this.videoPanel);
-            this.rightTable.Controls.Add(this.logPanel);
+            this.rightTable.Controls.Add(this.videoPanel, 0, 0);
+            this.rightTable.Controls.Add(this.logPanel, 0, 1);
             this.rightTable.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.rightTable.Location = new System.Drawing.Point(0, 0);
             this.rightTable.Name = "rightTable";
             this.rightTable.RowCount = 2;
-            this.rightTable.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 75F));
-            this.rightTable.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 25F));
-            this.rightTable.Size = new System.Drawing.Size(697, 703);
-            this.rightTable.TabIndex = 0;
+            this.rightTable.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 72F));
+            this.rightTable.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 28F));
+            this.rightTable.Size = new System.Drawing.Size(938, 724);
             //
-            // videoPanel
+            // videoPanel —— 黑底视频区
             //
-            this.videoPanel.BackColor = System.Drawing.Color.Black;
-            this.videoPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.videoPanel.BackColor = Color.Black;
             this.videoPanel.Controls.Add(this.videoPictureBox);
             this.videoPanel.Controls.Add(this.lblVideoTitle);
             this.videoPanel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.videoPanel.Location = new System.Drawing.Point(3, 3);
             this.videoPanel.Name = "videoPanel";
-            this.videoPanel.Size = new System.Drawing.Size(691, 521);
-            this.videoPanel.TabIndex = 0;
+            this.videoPanel.Padding = new System.Windows.Forms.Padding(0, 0, 0, 6);
+            this.videoPanel.Size = new System.Drawing.Size(938, 517);
             //
-            // videoPictureBox
+            // videoPictureBox —— 逐帧显示（原生控件，性能关键路径勿换）
             //
             this.videoPictureBox.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.videoPictureBox.Location = new System.Drawing.Point(0, 0);
             this.videoPictureBox.Name = "videoPictureBox";
-            this.videoPictureBox.Size = new System.Drawing.Size(687, 517);
             this.videoPictureBox.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
-            this.videoPictureBox.TabIndex = 1;
             this.videoPictureBox.TabStop = false;
             //
-            // lblVideoTitle
+            // lblVideoTitle —— 未开流时的占位提示
             //
             this.lblVideoTitle.AutoSize = true;
-            this.lblVideoTitle.Font = new System.Drawing.Font("微软雅黑", 12F, System.Drawing.FontStyle.Bold);
-            this.lblVideoTitle.ForeColor = System.Drawing.Color.White;
-            this.lblVideoTitle.Location = new System.Drawing.Point(10, 10);
+            this.lblVideoTitle.Font = new Font("微软雅黑", 12F, FontStyle.Bold);
+            this.lblVideoTitle.ForeColor = Color.FromArgb(150, 150, 150);
+            this.lblVideoTitle.Location = new System.Drawing.Point(14, 12);
             this.lblVideoTitle.Name = "lblVideoTitle";
-            this.lblVideoTitle.Size = new System.Drawing.Size(106, 22);
-            this.lblVideoTitle.TabIndex = 0;
             this.lblVideoTitle.Text = "视频预览区域";
             //
-            // logPanel
+            // logPanel —— 日志卡片
             //
-            this.logPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.logPanel.FillColor = Color.White;
+            this.logPanel.RectColor = CardBorderColor;
+            this.logPanel.Radius = 8;
             this.logPanel.Controls.Add(this.lblLog);
             this.logPanel.Controls.Add(this.txtLog);
             this.logPanel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.logPanel.Location = new System.Drawing.Point(3, 530);
             this.logPanel.Name = "logPanel";
-            this.logPanel.Size = new System.Drawing.Size(691, 170);
-            this.logPanel.TabIndex = 1;
+            this.logPanel.Padding = new System.Windows.Forms.Padding(6, 2, 6, 6);
+            this.logPanel.Size = new System.Drawing.Size(938, 201);
             //
             // lblLog
             //
             this.lblLog.AutoSize = true;
-            this.lblLog.Font = new System.Drawing.Font("微软雅黑", 10F, System.Drawing.FontStyle.Bold);
-            this.lblLog.Location = new System.Drawing.Point(10, 5);
+            this.lblLog.Font = new Font("微软雅黑", 10F, FontStyle.Bold);
+            this.lblLog.ForeColor = TitleTextColor;
+            this.lblLog.Location = new System.Drawing.Point(14, 8);
             this.lblLog.Name = "lblLog";
-            this.lblLog.Size = new System.Drawing.Size(65, 19);
-            this.lblLog.TabIndex = 0;
-            this.lblLog.Text = "操作日志";
+            this.lblLog.Text = "运行日志";
             //
-            // txtLog
+            // txtLog —— 运行日志（原生 TextBox：SunnyUI 3.9.8 已移除 UILogView 控件；
+            // 行数上限裁剪逻辑在 MainForm.AppendLogToPanel 中实现，防长期运行内存增长）
             //
-            this.txtLog.BackColor = System.Drawing.Color.Black;
-            this.txtLog.Font = new System.Drawing.Font("Consolas", 9F);
-            this.txtLog.ForeColor = System.Drawing.Color.LightGreen;
-            this.txtLog.Location = new System.Drawing.Point(10, 30);
+            this.txtLog.Anchor = System.Windows.Forms.AnchorStyles.Top |
+                System.Windows.Forms.AnchorStyles.Bottom |
+                System.Windows.Forms.AnchorStyles.Left |
+                System.Windows.Forms.AnchorStyles.Right;
+            this.txtLog.BackColor = Color.White;
+            this.txtLog.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.txtLog.Font = new Font("Consolas", 9F);
+            this.txtLog.ForeColor = TitleTextColor;
+            this.txtLog.Location = new System.Drawing.Point(16, 34);
             this.txtLog.Multiline = true;
             this.txtLog.Name = "txtLog";
             this.txtLog.ReadOnly = true;
             this.txtLog.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.txtLog.Size = new System.Drawing.Size(640, 140);
-            this.txtLog.TabIndex = 1;
+            this.txtLog.Size = new System.Drawing.Size(906, 159);
             //
             // MainForm
             //
-            this.ClientSize = new System.Drawing.Size(1084, 711);
+            this.ClientSize = new Size(1280, 800);
+            this.MinimumSize = new Size(1160, 740);
             this.Controls.Add(this.layoutTable);
+            this.Controls.Add(this.headerBar);
+            this.Font = new Font("微软雅黑", 9F);
             this.Name = "MainForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "摄像头二次开发Demo";
+            this.Text = "YOLO 实时人员检测系统";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.MainForm_FormClosing);
+            this.headerBar.ResumeLayout(false);
+            this.headerBar.PerformLayout();
             this.layoutTable.ResumeLayout(false);
-            this.connectPanel.ResumeLayout(false);
-            this.connectPanel.PerformLayout();
-            this.streamPanel.ResumeLayout(false);
-            this.streamPanel.PerformLayout();
-            this.controlPanel.ResumeLayout(false);
-            this.controlPanel.PerformLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.numChannel)).EndInit();
-            this.infoPanel.ResumeLayout(false);
-            this.infoPanel.PerformLayout();
+            this.leftPanel.ResumeLayout(false);
+            this.cardConnect.ResumeLayout(false);
+            this.cardConnect.PerformLayout();
+            this.cardStream.ResumeLayout(false);
+            this.cardStream.PerformLayout();
+            this.cardControl.ResumeLayout(false);
+            this.cardControl.PerformLayout();
+            this.cardInfo.ResumeLayout(false);
+            this.cardInfo.PerformLayout();
             this.rightPanel.ResumeLayout(false);
             this.rightTable.ResumeLayout(false);
             this.videoPanel.ResumeLayout(false);
             this.videoPanel.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.videoPictureBox)).EndInit();
             this.logPanel.ResumeLayout(false);
             this.logPanel.PerformLayout();
             this.ResumeLayout(false);
-
         }
+
+        // ==================== 样式辅助方法 ====================
+        // Designer 通常不用辅助方法，但手写布局里抽出来可以避免同一套
+        // 颜色/圆角参数散落十几处；改主题时只动文件头的色板常量即可。
+
+        /// <summary>统一卡片样式：白底、浅灰描边、8px 圆角</summary>
+        private static void StyleCard(UIPanel card, string name)
+        {
+            card.FillColor = Color.White;
+            card.RectColor = CardBorderColor;
+            card.Radius = 8;
+            card.Name = name;
+        }
+
+        /// <summary>分组标题：加粗深蓝灰</summary>
+        private static void StyleCardTitle(UILabel label, string text)
+        {
+            label.AutoSize = true;
+            label.Font = new Font("微软雅黑", 11F, FontStyle.Bold);
+            label.ForeColor = TitleTextColor;
+            label.Text = text;
+        }
+
+        /// <summary>字段标签：正文灰</summary>
+        private static void StyleBodyLabel(UILabel label, string text)
+        {
+            label.AutoSize = true;
+            label.Font = new Font("微软雅黑", 9.5F);
+            label.ForeColor = BodyTextColor;
+            label.Text = text;
+        }
+
+        /// <summary>纯色圆角按钮：白字 + 悬停提亮 + 按下压暗（属性名对应 SunnyUI 3.9.8）</summary>
+        private static void StyleButton(UIButton button, Color baseColor)
+        {
+            button.FillColor = baseColor;
+            button.FillHoverColor = Lighten(baseColor, 0.25f);
+            button.FillPressColor = Darken(baseColor, 0.12f);
+            button.RectColor = baseColor;
+            button.RectHoverColor = Lighten(baseColor, 0.25f);
+            button.RectPressColor = Darken(baseColor, 0.12f);
+            button.ForeColor = Color.White;
+        }
+
+        /// <summary>主操作按钮（天蓝）</summary>
+        private static void StylePrimaryButton(UIButton button)
+        {
+            StyleButton(button, PrimaryColor);
+        }
+
+        /// <summary>向 target 颜色混合 f 比例（0~1），用于按钮悬停/按压的明暗渐变</summary>
+        private static Color Mix(Color c, Color target, float f)
+        {
+            return Color.FromArgb(
+                c.R + (int)((target.R - c.R) * f),
+                c.G + (int)((target.G - c.G) * f),
+                c.B + (int)((target.B - c.B) * f));
+        }
+
+        private static Color Lighten(Color c, float f) { return Mix(c, Color.White, f); }
+
+        private static Color Darken(Color c, float f) { return Mix(c, Color.Black, f); }
 
         // ---- 控件字段声明 ----
 
+        private System.Windows.Forms.Panel headerBar;
+        private UILabel lblAppTitle;
+        private UILabel lblStatus;
         private System.Windows.Forms.TableLayoutPanel layoutTable;
-        private System.Windows.Forms.Panel connectPanel;
-        private System.Windows.Forms.Label lblTitle;
-        private System.Windows.Forms.Label lblIp;
-        private System.Windows.Forms.TextBox txtIp;
-        private System.Windows.Forms.Label lblStatus;
-        private System.Windows.Forms.Button btnConnect;
-        private System.Windows.Forms.Panel streamPanel;
-        private System.Windows.Forms.Label lblStream;
-        private System.Windows.Forms.Label lblUrl;
-        private System.Windows.Forms.TextBox txtStreamUrl;
-        private System.Windows.Forms.Button btnTestStream;
-        private System.Windows.Forms.Panel controlPanel;
-        private System.Windows.Forms.Label lblControl;
-        private System.Windows.Forms.Label lblChannel;
-        private System.Windows.Forms.NumericUpDown numChannel;
-        private System.Windows.Forms.Button btnStartPreview;
-        private System.Windows.Forms.Button btnStopPreview;
-        private System.Windows.Forms.Button btnStartRtsp;
-        private System.Windows.Forms.Button btnStartRtmp;
-        private System.Windows.Forms.Panel infoPanel;
-        private System.Windows.Forms.Label lblInfo;
+        private System.Windows.Forms.Panel leftPanel;
+        private UIPanel cardConnect;
+        private UILabel lblTitle;
+        private UILabel lblIp;
+        private UITextBox txtIp;
+        private UIButton btnConnect;
+        private UIPanel cardStream;
+        private UILabel lblStream;
+        private UILabel lblUrl;
+        private UITextBox txtStreamUrl;
+        private UIPanel cardControl;
+        private UILabel lblControl;
+        private UILabel lblChannel;
+        private UIIntegerUpDown numChannel;
+        private UIButton btnStartPreview;
+        private UIButton btnStopPreview;
+        private UIButton btnStartRtsp;
+        private UIButton btnStartRtmp;
+        private UIPanel cardInfo;
+        private UILabel lblInfo;
         private System.Windows.Forms.TextBox txtStatusInfo;
         private System.Windows.Forms.Panel rightPanel;
         private System.Windows.Forms.TableLayoutPanel rightTable;
         private System.Windows.Forms.Panel videoPanel;
         private System.Windows.Forms.PictureBox videoPictureBox;
-        private System.Windows.Forms.Label lblVideoTitle;
-        private System.Windows.Forms.Panel logPanel;
-        private System.Windows.Forms.Label lblLog;
+        private UILabel lblVideoTitle;
+        private UIPanel logPanel;
+        private UILabel lblLog;
         private System.Windows.Forms.TextBox txtLog;
     }
 }

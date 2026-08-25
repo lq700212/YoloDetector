@@ -24,12 +24,6 @@ namespace YoloDetector.Cameras
 
         public int TotalVideoCount { get; set; }
 
-        /// <summary>RTMP 带宽（kbps）</summary>
-        public int RtmpBandwidth { get; set; }
-
-        /// <summary>RTSP 带宽（kbps）</summary>
-        public int RtspBandwidth { get; set; }
-
         /// <summary>磁盘使用率（百分比）</summary>
         public float GetDiskUsage()
         {

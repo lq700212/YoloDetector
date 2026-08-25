@@ -1,7 +1,7 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using OpenCvSharp;
 
-namespace YoloDetector.Detection
+namespace YoloDetection
 {
     /// <summary>
     /// 检测结果可视化抽象接口（策略模式）。

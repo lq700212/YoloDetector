@@ -1,7 +1,7 @@
-using System;
+﻿using System;
 using OpenCvSharp;
 
-namespace YoloDetector.Detection
+namespace YoloDetection
 {
     /// <summary>
     /// 视频帧源抽象接口。

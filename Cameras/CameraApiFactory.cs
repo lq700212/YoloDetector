@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using YoloDetector.Configuration;
 
 namespace YoloDetector.Cameras
@@ -36,18 +34,6 @@ namespace YoloDetector.Cameras
                     Infrastructure.Logging.Logger.Write($"未知相机品牌: {brand}，使用默认实现(ANGEHUA)");
                     return new AngehuaCameraApiClient(ip, port, timeout, urlFormat);
             }
-        }
-
-        /// <summary>当前支持（含回退支持）的品牌列表</summary>
-        public static string[] GetSupportedBrands()
-        {
-            return new[] { "ANGEHUA", "HIK", "DAHUA" };
-        }
-
-        public static bool IsBrandSupported(string brand)
-        {
-            return Array.Exists(GetSupportedBrands(), b =>
-                b.Equals(brand, StringComparison.OrdinalIgnoreCase));
         }
     }
 }

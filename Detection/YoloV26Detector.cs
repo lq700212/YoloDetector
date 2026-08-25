@@ -1,11 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using OpenCvSharp;
 
-namespace YoloDetector.Detection
+namespace YoloDetection
 {
     /// <summary>
     /// YOLO V26 ONNX 检测器（IYoloDetector 默认实现）。
@@ -76,9 +76,11 @@ namespace YoloDetector.Detection
 
         public List<DetectionResult> Detect(Mat mat)
         {
+            // 已释放检查必须在前：Dispose 后 _session 为空，若先走 IsInitialized
+            // 会抛出语义不准的"尚未初始化"，而非 ObjectDisposedException
+            ThrowIfDisposed();
             if (!IsInitialized) throw new InvalidOperationException("YOLO检测器尚未初始化");
             if (mat == null || mat.Empty()) return new List<DetectionResult>();
-            ThrowIfDisposed();
 
             try
             {

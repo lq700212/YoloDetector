@@ -1,37 +1,22 @@
 {
-  "_说明": "DAHUA（大华）品牌相机配置 - 包含大华特有的API路径和参数",
+  "_说明": "DAHUA（大华）品牌相机配置（品牌客户端尚未实现，工厂暂回退默认实现）",
   "Connection": {
     "_说明": "相机连接参数",
     "DefaultIp": "192.168.0.100",
-    "Username": "admin",
-    "Password": "admin",
-    "TimeoutSeconds": 15,
-    "UserAgent": "YoloDetector/1.0"
+    "TimeoutSeconds": 15
   },
   "Api": {
     "_说明": "API接口参数 - 大华品牌特有",
-    "CameraBrand": "DAHUA",
-    "SignSecret": "dahua_secret_key",
-    "OldControlApiPath": "/cgi-bin/configManager.cgi?action=getConfig",
-    "NewControlApiPath": "/cgi-bin/configManager.cgi?action=setConfig",
-    "IpApiPath": "/cgi-bin/configManager.cgi?action=getConfig&name=Network",
-    "CpuApiPath": "/cgi-bin/magicBox.cgi?action=getSystemInfo",
-    "MemApiPath": "/cgi-bin/magicBox.cgi?action=getSystemInfo",
-    "DiskTotalApiPath": "/cgi-bin/magicBox.cgi?action=getStorageInfo",
-    "DiskFreeApiPath": "/cgi-bin/magicBox.cgi?action=getStorageInfo",
-    "TotalCountApiPath": "/cgi-bin/eventManager.cgi?action=getEventCounts",
-    "RtmpBandwidthApiPath": "/cgi-bin/streamManager.cgi?action=getStreamStatus",
-    "RtspBandwidthApiPath": "/cgi-bin/streamManager.cgi?action=getStreamStatus"
+    "CameraBrand": "DAHUA"
   },
   "Stream": {
     "_说明": "视频流参数",
     "RtspPort": 554,
-    "RtspUrlFormat": "rtsp://{username}:{password}@{ip}:{port}/cam/realmonitor?channel={channel}&subtype=0",
+    "RtspUrlFormat": "rtsp://{ip}:{port}/cam/realmonitor?channel={channel}&subtype=0",
     "MaxChannel": 32
   },
   "Preview": {
     "_说明": "预览参数",
-    "PreviewPagePath": "/cgi-bin/snapshot.cgi?channel={channel}",
     "StatusRefreshIntervalMs": 5000
   }
 }

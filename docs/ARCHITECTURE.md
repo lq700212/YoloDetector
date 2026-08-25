@@ -32,6 +32,10 @@ RTSP 网络摄像头接入 → OpenCV 逐帧捕获 → YOLO(ONNX) 推理检测�
 
 依赖方向：`UI → App → Detection/Cameras → Infrastructure/Configuration`，严禁反向。
 
+**程序集边界（模块化）**：`Detection/` 编译为独立类库 `YoloDetector.Detection.dll`（命名空间 `YoloDetection`，工程 `Detection/YoloDetector.Detection.csproj`），主程序经项目引用使用；该程序集**禁止引用宿主任何业务命名空间**，日志经 `LogManager.Initialize` 的委托注入、配置经方法参数注入——整个目录复制到其他解决方案即可迁移（接入指南：`docs/MODULE.md`）。主 csproj 中已 `<Compile Remove="Detection\**\*.cs">` 防止重复编译。
+
+**多目标与离线依赖**：类库双目标编译——`net472` 与 `netstandard2.0` **能力完全一致**（无条件编译差异）：位图后端统一 SkiaSharp（SKBitmap/Bgra8888 与 OpenCV BGRA 布局对齐，SIMD CvtColor + Buffer.MemoryCopy 整块拷贝），可视化与互转 API 全平台同源同效果；宿主显示层在 `App/SkBitmapExtensions.cs` 做一次 SKBitmap→Drawing.Bitmap 边界转换（类库内禁止 System.Drawing）。托管依赖与 native 运行库均已 vendor 入 git（`Detection/libs/` + `Detection/libs/native/`，最大单文件 59MB < GitHub 100MB 限制），克隆即完整、编译运行全离线；`tools/collect-native.ps1` 仅在更换依赖版本后重新收集时使用。native 经类库 csproj 的 None+Link 规则平铺复制到输出目录（运行时 DllImport 按 exe 目录解析）。
+
 ## 2. 线程模型（稳定性核心）
 
 三个线程协作，全部生命周期由控制器管理：
@@ -60,7 +64,8 @@ CaptureLoop: frame(栈上,finally释放) ─clone→ bgrFrame(可能=frame,判�
                                         └─ finally copy.Dispose()   ← 所有权终结点①
 检测线程: _pendingFrame ─取走─▶ frame
    └─visualizer.Draw(frame)→ outputFrame ══FrameProcessed事件══▶ OnFrameProcessed
-        └─ MatToBitmap(outputFrame) → bitmap；outputFrame.Dispose() ← 所有权终结点②
+        └─ MatToSKBitmap(outputFrame) → ToDrawingBitmap() → bitmap
+             outputFrame.Dispose()                        ← 所有权终结点②
              └─ SafeBeginInvoke(bitmap) ─▶ PictureBox.Image 替换时 Dispose 旧图 ← 终结点③
 ```
 
@@ -110,7 +115,7 @@ w' = w_model * scaleX;             h' = h_model * scaleY;             // 仅中�
 
 加载容错：文件缺失或损坏一律回退代码默认值。业务模块不直接读 AppConfig（由调用方注入参数值），保持 Detection 域零外部依赖。
 
-换 YOLO 模型：onnx 放 `Detection/model/`，改 yoloConfig.json 的 `ModelPath` 即可。模型获取/pt转onnx 见 `YOLOTest/doc/YOLO V26 ONNX 模型获取与验证完全指南.md`。
+换 YOLO 模型：onnx 放 `Detection/model/`，改 yoloConfig.json 的 `ModelPath` 即可。模型获取/pt转onnx 见 `docs/ONNX模型获取指南.md`。
 
 ## 6. 已知限制（后续可改进项）
 
@@ -122,5 +127,5 @@ w' = w_model * scaleX;             h' = h_model * scaleY;             // 仅中�
 ## 7. 常用调试入口
 
 - 日志分级开关：`Detection/yoloConfig.json` 的 `YoloDebugLog`（推理过程）/`DetectionResultLog`（每帧结果），输出到 `logs/log_yyyy-MM-dd.txt`，调试完关回 false。
-- 检测算法对照验证：`YOLOTest/test/*.py`（Python 侧同模型脚本），或本地图片喂 `YoloV26Detector.Detect(Mat)`。
+- 检测算法对照验证：本地图片喂 `YoloV26Detector.Detect(Mat)`（模块 API 见 docs/MODULE.md）。
 - 版本历史见根目录 `CHANGELOG.md`。

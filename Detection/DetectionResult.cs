@@ -1,4 +1,4 @@
-namespace YoloDetector.Detection
+﻿namespace YoloDetection
 {
     /// <summary>
     /// 单个目标的检测结果。

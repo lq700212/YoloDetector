@@ -100,13 +100,8 @@ namespace YoloDetector.Cameras
             return Task.FromResult(false);
         }
 
-        public string GetVideoStreamUrl(int channel, string streamType = "RTSP")
+        public string GetVideoStreamUrl(int channel)
         {
-            if (streamType != null && streamType.Equals("RTMP", StringComparison.OrdinalIgnoreCase))
-            {
-                return string.Empty;
-            }
-
             return _rtspUrlFormat
                 .Replace("{ip}", _ip)
                 .Replace("{port}", _rtspPort.ToString())

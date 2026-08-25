@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using Newtonsoft.Json;
 
 namespace YoloDetector.Configuration
@@ -201,69 +200,6 @@ namespace YoloDetector.Configuration
                 _yoloConfig = new YoloConfig();
             }
             System.Diagnostics.Debug.WriteLine("使用YOLO默认配置");
-        }
-
-        /// <summary>获取所有可用的品牌配置名（扫描 cameraConfigs 目录）</summary>
-        public static string[] GetAvailableBrandConfigs()
-        {
-            EnsureBrandConfigsDirectoryExists();
-
-            try
-            {
-                string[] jsonFiles = Directory.GetFiles(BrandConfigsDirectory, "*.json");
-                return jsonFiles.Select(Path.GetFileNameWithoutExtension).ToArray();
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine("获取品牌配置列表失败: " + ex.Message);
-                return new string[0];
-            }
-        }
-
-        /// <summary>保存当前配置到主配置文件</summary>
-        public static void Save()
-        {
-            try
-            {
-                string json = JsonConvert.SerializeObject(_current, Formatting.Indented);
-                File.WriteAllText(ConfigFilePath, json);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine("配置文件保存失败: " + ex.Message);
-            }
-        }
-
-        /// <summary>将当前配置另存为指定品牌的独立配置文件</summary>
-        public static void SaveBrandConfig(string brand)
-        {
-            if (string.IsNullOrEmpty(brand))
-            {
-                brand = _current?.Api?.CameraBrand ?? DefaultBrand;
-            }
-
-            EnsureBrandConfigsDirectoryExists();
-            string brandConfigPath = Path.Combine(BrandConfigsDirectory, brand + ".json");
-
-            try
-            {
-                var snapshot = Current;
-                var brandConfig = new CameraConfig
-                {
-                    Connection = snapshot.Connection,
-                    Api = snapshot.Api,
-                    Stream = snapshot.Stream,
-                    Preview = snapshot.Preview
-                };
-
-                string json = JsonConvert.SerializeObject(brandConfig, Formatting.Indented);
-                File.WriteAllText(brandConfigPath, json);
-                System.Diagnostics.Debug.WriteLine("品牌配置保存成功: " + brandConfigPath);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine("品牌配置保存失败: " + ex.Message);
-            }
         }
 
         private static void EnsureBrandConfigsDirectoryExists()

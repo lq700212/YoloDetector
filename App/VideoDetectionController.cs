@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using YoloDetector.Infrastructure.Logging;
 
 namespace YoloDetector.App
 {
@@ -21,7 +22,14 @@ namespace YoloDetector.App
         /// <summary>是否开启每帧检测结果日志</summary>
         public bool DetectionResultLog { get; set; }
 
-        public Detection.VisualizerType VisualizerType { get; set; } = Detection.VisualizerType.YoloBuiltin;
+        /// <summary>
+        /// 检测模块日志的 UI 回调（宿主注入）。
+        /// 检测线程的异常/过程日志除写文件外，经此回调同步显示到界面日志面板；
+        /// 回调在后台线程触发，宿主实现必须自行做线程调度（如 SafeBeginInvoke）。可为 null。
+        /// </summary>
+        public Action<string> LogSink { get; set; }
+
+        public YoloDetection.VisualizerType VisualizerType { get; set; } = YoloDetection.VisualizerType.YoloBuiltin;
 
         /// <summary>RTSP 流地址</summary>
         public string RtspUrl { get; set; }
@@ -43,15 +51,15 @@ namespace YoloDetector.App
     public sealed class VideoDetectionController : IDisposable
     {
         private readonly Action<System.Drawing.Bitmap> _previewSink;
-        private readonly Action<List<Detection.DetectionResult>> _detectionSink;
+        private readonly Action<List<YoloDetection.DetectionResult>> _detectionSink;
 
-        private Detection.IYoloDetector _detector;
-        private Detection.IDetectionPipeline _pipeline;
-        private Detection.IFrameSource _frameSource;
+        private YoloDetection.IYoloDetector _detector;
+        private YoloDetection.IDetectionPipeline _pipeline;
+        private YoloDetection.IFrameSource _frameSource;
 
         public VideoDetectionController(
             Action<System.Drawing.Bitmap> previewSink,
-            Action<List<Detection.DetectionResult>> detectionSink)
+            Action<List<YoloDetection.DetectionResult>> detectionSink)
         {
             _previewSink = previewSink ?? throw new ArgumentNullException(nameof(previewSink));
             _detectionSink = detectionSink ?? throw new ArgumentNullException(nameof(detectionSink));
@@ -79,18 +87,21 @@ namespace YoloDetector.App
             // 先停掉可能存在的旧会话，保证幂等
             Stop();
 
-            // 1. 日志开关
-            Detection.LogManager.Initialize(
+            // 1. 日志开关与输出通道（模块化约定：检测模块本身不落地日志，
+            //    文件通道由宿主注入 Logger.Write，UI 通道经 options.LogSink 注入）
+            YoloDetection.LogManager.Initialize(
                 enableYoloLog: options.YoloDebugLog,
                 enableGeneralLog: true,
-                enableDetectionResultLog: options.DetectionResultLog);
+                enableDetectionResultLog: options.DetectionResultLog,
+                outputSink: Logger.Write,
+                uiSink: options.LogSink);
 
             // 2. 检测器（跨会话复用已初始化的实例，避免重复加载模型）
             EnsureDetector(options);
 
             // 3. 可视化器 + 检测管道
-            var visualizer = Detection.VisualizerFactory.Create(options.VisualizerType);
-            var pipeline = new Detection.YoloDetectionService(_detector, visualizer)
+            var visualizer = YoloDetection.VisualizerFactory.Create(options.VisualizerType);
+            var pipeline = new YoloDetection.YoloDetectionService(_detector, visualizer)
             {
                 ConfidenceThreshold = options.ConfidenceThreshold,
                 NmsThreshold = options.NmsThreshold
@@ -101,7 +112,7 @@ namespace YoloDetector.App
             pipeline.Start();
 
             // 4. 帧源最后启动（管道已就绪，避免开头几帧因管道未运行被丢弃）
-            var frameSource = new Detection.RtspFrameCapturer();
+            var frameSource = new YoloDetection.RtspFrameCapturer();
             frameSource.FrameReady += OnFrameReady;
 
             if (!frameSource.Start(options.RtspUrl))
@@ -163,7 +174,7 @@ namespace YoloDetector.App
                     _detector.Dispose();
                 }
 
-                var detector = new Detection.YoloV26Detector();
+                var detector = new YoloDetection.YoloV26Detector();
                 try
                 {
                     detector.Initialize(options.ModelPath);
@@ -203,7 +214,15 @@ namespace YoloDetector.App
             System.Drawing.Bitmap bitmap = null;
             try
             {
-                bitmap = Detection.MatExtensions.MatToBitmap(frame);
+                // 类库统一输出 SKBitmap（跨平台）；Windows 宿主在此边界转换为
+                // System.Drawing.Bitmap 供 PictureBox 显示（24bpp BGR 整块拷贝，约 0.5ms）
+                using (var skb = YoloDetection.MatExtensions.MatToSKBitmap(frame))
+                {
+                    if (skb != null)
+                    {
+                        bitmap = skb.ToDrawingBitmap();
+                    }
+                }
             }
             finally
             {
@@ -216,7 +235,7 @@ namespace YoloDetector.App
             }
         }
 
-        private void OnDetectionsUpdated(object sender, List<Detection.DetectionResult> detections)
+        private void OnDetectionsUpdated(object sender, List<YoloDetection.DetectionResult> detections)
         {
             _detectionSink(detections);
         }

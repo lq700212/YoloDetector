@@ -42,3 +42,13 @@ desktop.ini
 
 # ===== NuGet 包目录（如果使用 NuGet） =====
 packages/
+# ===== 运行/调试产物 =====
+## 文件日志目录（Logger 按日期写 log_yyyy-MM-dd.txt）
+logs/
+## 临时验证产物（截图/测试图等，前缀约定 tmp_）
+tmp_*
+
+# ===== 其他 IDE 与工具 =====
+.idea/
+TestResults/
+*.binlog
