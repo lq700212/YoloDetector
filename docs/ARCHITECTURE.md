@@ -34,7 +34,7 @@ RTSP 网络摄像头接入 → OpenCV 逐帧捕获 → YOLO(ONNX) 推理检测�
 
 **程序集边界（模块化）**：`Detection/` 编译为独立类库 `YoloDetector.Detection.dll`（命名空间 `YoloDetection`，工程 `Detection/YoloDetector.Detection.csproj`），主程序经项目引用使用；该程序集**禁止引用宿主任何业务命名空间**，日志经 `LogManager.Initialize` 的委托注入、配置经方法参数注入——整个目录复制到其他解决方案即可迁移（接入指南：`docs/MODULE.md`）。主 csproj 中已 `<Compile Remove="Detection\**\*.cs">` 防止重复编译。
 
-**多目标与离线依赖**：类库双目标编译——`net472` 与 `netstandard2.0` **能力完全一致**（无条件编译差异）：位图后端统一 SkiaSharp（SKBitmap/Bgra8888 与 OpenCV BGRA 布局对齐，SIMD CvtColor + Buffer.MemoryCopy 整块拷贝），可视化与互转 API 全平台同源同效果；宿主显示层在 `App/SkBitmapExtensions.cs` 做一次 SKBitmap→Drawing.Bitmap 边界转换（类库内禁止 System.Drawing）。托管依赖与 native 运行库均已 vendor 入 git（`Detection/libs/` + `Detection/libs/native/`，最大单文件 59MB < GitHub 100MB 限制），克隆即完整、编译运行全离线；`tools/collect-native.ps1` 仅在更换依赖版本后重新收集时使用。native 经类库 csproj 的 None+Link 规则平铺复制到输出目录（运行时 DllImport 按 exe 目录解析）。
+**多目标与离线依赖**：类库双目标编译——`net472` 与 `netstandard2.0` **能力完全一致**（无条件编译差异）：位图后端统一 SkiaSharp（SKBitmap/Bgra8888 与 OpenCV BGRA 布局对齐，SIMD CvtColor + Buffer.MemoryCopy 整块拷贝），可视化与互转 API 全平台同源同效果；宿主显示层在 `App/SkBitmapExtensions.cs` 做一次 SKBitmap→Drawing.Bitmap 边界转换（类库内禁止 System.Drawing）。托管依赖与 native 运行库均已 vendor 入 git（`Detection/libs/` + `Detection/libs/native/`，Windows 与 Linux 双平台共约 201MB，最大单文件 libOpenCvSharpExtern.so 72MB < GitHub 100MB 限制），克隆即完整、编译运行全离线；`tools/collect-native.ps1` 仅在更换依赖版本后重新收集时使用。native 经类库 csproj 的 None+Link 规则平铺复制到输出目录（运行时 DllImport 按 exe 目录解析，.dll/.so 共存互不冲突）。
 
 ## 2. 线程模型（稳定性核心）
 

@@ -7,13 +7,13 @@ description: "重新收集检测模块的 native 运行库（OpenCvSharpExtern/o
 
 ## 背景
 
-检测类库的托管依赖（OpenCvSharp.dll 等）与 native 运行库**均已 vendor 入 git**（`Detection/libs/` + `Detection/libs/native/`，最大单文件 59MB < GitHub 100MB 限制），克隆仓库即为完整可编译、可运行状态，**日常无需执行本技能**。本脚本仅在更换依赖版本时用于从 NuGet 全局缓存重新收集新版 native。
+检测类库的托管依赖（OpenCvSharp.dll 等）与 native 运行库**均已 vendor 入 git**（`Detection/libs/` + `Detection/libs/native/`，Windows 与 Linux 双平台共约 201MB，最大单文件 72MB < GitHub 100MB 限制），克隆仓库即为完整可编译、可运行状态（Windows 与 Linux 双平台开箱可用），**日常无需执行本技能**。本脚本仅在更换依赖版本时用于从 NuGet 全局缓存重新收集新版 native。
 
 ## 何时需要执行
 
 | 场景 | 是否需要 |
 | --- | --- |
-| 全新克隆仓库后 | ❌ 不需要（native 已随 git 分发） |
+| 全新克隆仓库后 | ❌ 不需要（native 已随 git 分发，双平台齐全） |
 | 更换了 OpenCvSharp/OnnxRuntime/SkiaSharp 依赖版本 | ✅ 必须（同步修改脚本内的版本号） |
 | native 文件被误删/损坏 | ✅ 使用 |
 | 日常开发 | ❌ 不需要 |

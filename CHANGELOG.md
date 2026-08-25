@@ -11,7 +11,8 @@
 - 目录重组为五层架构：`UI`（视图）/ `App`（编排）/ `Detection`（检测域）/ `Cameras`（相机域）/ `Configuration` + `Infrastructure`（配置与基础设施），依赖方向单向
 - **检测模块拆分为独立类库** `YoloDetector.Detection.dll`（命名空间 `YoloDetection`，工程 `Detection/YoloDetector.Detection.csproj`）：不依赖宿主业务代码，日志/配置全部委托注入，整个目录复制 + 项目引用即可迁移到其他项目（接入指南见 docs/MODULE.md）
 - **类库多目标跨平台**：`net472` + `netstandard2.0` 两目标能力完全一致（无条件编译差异）——位图后端统一 SkiaSharp（Google Skia 跨平台封装），MatToSKBitmap/SKBitmapToMat 无损互转（往返像素差=0，1080P 约 5ms）、YoloBuiltin 可视化器 SKCanvas 绘制效果与原 GDI+ 版一致，Windows/Linux/macOS 使用方式与效果完全相同
-- **离线编译与部署**：托管依赖与 native 运行库（含 Windows .dll 与 Linux .so，约 113MB）全部 vendor 入 git——克隆即完整、编译运行零网络依赖，部署机只需 bin 目录整包拷贝（工厂无网环境友好）；`tools/collect-native.ps1` 仅在更换依赖版本后重新收集时使用
+- **离线编译与部署**：托管依赖与 native 运行库（Windows + Linux 双平台共约 201MB）全部 vendor 入 git——克隆即完整、编译运行零网络依赖，Windows/Linux 双平台开箱可用，部署机只需 bin 目录整包拷贝（工厂无网环境友好）；`tools/collect-native.ps1` 仅在更换依赖版本后重新收集时使用
+- **Linux 兼容收尾**：清理 VisualizerFactory 的条件编译残留（旧方案会让 netstandard2.0 目标抛 NotSupportedException，与"全平台能力一致"矛盾）；补齐 Linux native（libOpenCvSharpExtern.so 72MB、libonnxruntime.so 16MB，OpenCV Linux 采用与托管层同版本的 unofficial 构建保证 ABI 匹配）
 - 修复并发与资源问题：WaitHandle 释放竞态（改用 Monitor 信号协议）、帧所有权泄漏、状态轮询防重入、捕获循环 double-dispose、日志句柄关闭后重开等
 - MainForm 拆分为纯视图 + 布局 partial；新增 VideoDetectionController（帧流转与 Mat 所有权终结）、CameraController（连接状态机）
 - 删除死代码与 LibVLC 依赖；ONNX 模型跨预览会话复用（免去重复加载的秒级等待）

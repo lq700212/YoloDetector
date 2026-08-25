@@ -6,12 +6,7 @@ namespace YoloDetection
 {
     /// <summary>
     /// 可视化器工厂：根据类型枚举创建对应的绘制器实例。
-    ///
-    /// 多目标说明：
-    ///   - YoloBuiltin(GDI+) 可视化器依赖 System.Drawing（Windows 图形子系统），
-    ///     仅在 Windows 目标框架（net472/net8.0-windows）的构建中编入；
-    ///     netstandard2.0（跨平台）构建中请求它会抛 NotSupportedException
-    ///   - OpenCV 可视化器纯 OpenCvSharp 实现，全平台可用
+    /// 两个可视化器均为跨平台实现（Skia / OpenCV），全平台行为一致。
     /// </summary>
     public static class VisualizerFactory
     {
@@ -19,14 +14,8 @@ namespace YoloDetection
         {
             switch (type)
             {
-#if !NETSTANDARD
                 case VisualizerType.YoloBuiltin:
                     return new YoloBuiltinVisualizer();
-#else
-                case VisualizerType.YoloBuiltin:
-                    throw new NotSupportedException(
-                        "YoloBuiltin(GDI+) 可视化器依赖 System.Drawing，仅在 Windows 目标框架(net472/net8.0-windows)的构建中可用，请改用 OpenCV 可视化器");
-#endif
                 case VisualizerType.OpenCV:
                     return new OpenCVVisualizer();
                 default:

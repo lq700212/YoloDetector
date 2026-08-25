@@ -27,7 +27,7 @@ Detection/                        ← 整个目录复制走即可
 | 框架 | 接入方任选：.NET Framework 4.7.2+ / .NET Core 2.0+ / .NET 5/6/7/8+ / Mono（类库多目标编译自动匹配） |
 | 平台 | 任意 CPU 架构由 native 库决定；Windows x64 已验证，Linux/macOS 需对应平台 OpenCV/OnnxRuntime native 库 |
 | NuGet | **无需**——托管依赖已 vendor 进 `Detection/libs/`（OpenCvSharp.dll、Microsoft.ML.OnnxRuntime.dll、SkiaSharp.dll 及 Span 支撑库），编译完全离线 |
-| native 运行库 | `Detection/libs/native/`（约 113MB）**已入 git**——克隆即完整，无需任何收集步骤 |
+| native 运行库 | `Detection/libs/native/`（Windows + Linux 双平台共约 201MB）**已入 git**——克隆即完整，无需任何收集步骤 |
 | 模型 | ONNX 格式 YOLO 模型文件（路径由调用方指定，模块不关心放哪里） |
 
 **平台能力矩阵（全平台能力一致，使用不变、效果不变）**：
@@ -43,7 +43,7 @@ Detection/                        ← 整个目录复制走即可
 - 性能：Bgra8888 与 OpenCV BGRA 布局一致，SIMD CvtColor + 整块内存拷贝，1080P 互转约 5ms/帧（25fps 场景充裕）
 - Windows WinForms 宿主显示：在宿主边界做一次 SKBitmap→System.Drawing.Bitmap 转换（参考本项目 `App/SkBitmapExtensions.cs`，约 0.5ms）
 
-> Linux 部署：需将 `libs/native/` 中 OpenCV/OnnxRuntime 的 native 替换为目标平台版本（OpenCvSharp4.runtime.linux 包、onnxruntime 的 libonnxruntime.so）；libSkiaSharp.so 已随收集脚本提供。模块托管代码零改动。
+> **Linux 部署**：`libs/native/` 已同时携带 Linux 版 native（libOpenCvSharpExtern.so、libonnxruntime.so、libSkiaSharp.so），托管代码零改动，.NET 宿主在 Linux 上按 exe 同目录解析 .so 直接运行。注意 Linux 侧 RTSP 解码依赖系统 ffmpeg/gstreamer（OpenCV 视频后端约定），需目标机器已安装。
 
 ## 3. 最小接入示例（约 20 行）
 
@@ -140,12 +140,15 @@ class Demo
   ├─ Microsoft.ML.OnnxRuntime.dll
   ├─ SkiaSharp.dll                     跨平台绘制后端（托管）
   ├─ System.Memory.dll 等 Span 支撑库
-  ├─ OpenCvSharpExtern.dll (59MB)      native 运行库（collect 脚本收集后随编译复制）
-  ├─ libSkiaSharp.dll (9MB)            Skia native（Windows；Linux 为 libSkiaSharp.so）
-  ├─ onnxruntime.dll (11MB)
-  ├─ opencv_videoio_ffmpeg4100_64.dll  RTSP 解码依赖
+  ├─ OpenCvSharpExtern.dll (59MB)      Windows native
+  ├─ libOpenCvSharpExtern.so (72MB)    Linux native
+  ├─ libSkiaSharp.dll / .so (9MB)      Skia native（双平台）
+  ├─ onnxruntime.dll (11MB) / libonnxruntime.so (16MB)
+  ├─ opencv_videoio_ffmpeg4100_64.dll  Windows RTSP 解码依赖
   ├─ Detection\model\*.onnx            模型
   └─ Detection\yoloConfig.json 等配置
 ```
+
+> Windows 部署取全部 .dll；Linux 部署取全部 .so（.dll 共存无害，运行时按平台各取所需）。
 
 验证部署包完整性：目标机器上直接运行，日志出现"程序启动"且开始预览不报 `DllNotFoundException` / `TypeInitializationException` 即为完整。
