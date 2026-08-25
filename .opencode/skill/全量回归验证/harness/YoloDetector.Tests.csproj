@@ -1,0 +1,90 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    YoloDetector 全量回归测试 harness。
+
+    设计要点：
+      1. 编译产物直接输出到主项目 bin\Debug\net472\ —— 运行时 AppDomain.BaseDirectory
+         即主程序目录，appsettings.json / cameraConfigs / Detection\model 全部就地可用，
+         且所有依赖 DLL（OpenCvSharp/SkiaSharp/SunnyUI 等）无需复制即在同一目录。
+      2. 通过 HintPath 引用主项目的编译产物（exe + 类库 dll），因此必须先构建主项目。
+      3. 不引入任何外部测试框架（xUnit/NUnit），保持项目"克隆即离线可编译"的约定，
+         断言与用例组织见 TestFramework.cs 的微型框架。
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>YoloDetector.Tests</RootNamespace>
+    <AssemblyName>YoloDetector.Tests</AssemblyName>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- 输出直接进主项目 bin：配置/模型/依赖 DLL 就地可用 -->
+    <OutputPath>..\..\..\..\bin\Debug\net472\</OutputPath>
+    <!-- 像素级断言需要直接读写位图内存（指针操作） -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!--
+      开启自动绑定重定向：消除传递依赖版本差异告警(MSB3276)。
+      产物为 YoloDetector.Tests.exe.config，与主程序 YoloDetector.exe.config
+      不同名，不会覆盖现场主程序配置。
+    -->
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="YoloDetector">
+      <HintPath>..\..\..\..\bin\Debug\net472\YoloDetector.exe</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="YoloDetector.Detection">
+      <HintPath>..\..\..\..\bin\Debug\net472\YoloDetector.Detection.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="OpenCvSharp">
+      <HintPath>..\..\..\..\bin\Debug\net472\OpenCvSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SkiaSharp">
+      <HintPath>..\..\..\..\bin\Debug\net472\SkiaSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\..\..\..\bin\Debug\net472\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- MainForm 元数据里引用了 SunnyUI 控件类型，编译期需要可解析 -->
+    <Reference Include="SunnyUI">
+      <HintPath>..\..\..\..\bin\Debug\net472\SunnyUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SunnyUI.Common">
+      <HintPath>..\..\..\..\bin\Debug\net472\SunnyUI.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <!--
+      显式对齐主 bin 中实际部署的高版本传递依赖（OnnxRuntime/SunnyUI 元数据里
+      声明的是旧版本），否则 MSBuild RAR 报 MSB3276 版本冲突警告。
+    -->
+    <Reference Include="System.Buffers">
+      <HintPath>..\..\..\..\bin\Debug\net472\System.Buffers.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Memory">
+      <HintPath>..\..\..\..\bin\Debug\net472\System.Memory.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Runtime.CompilerServices.Unsafe">
+      <HintPath>..\..\..\..\bin\Debug\net472\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Numerics.Vectors">
+      <HintPath>..\..\..\..\bin\Debug\net472\System.Numerics.Vectors.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

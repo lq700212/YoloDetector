@@ -127,11 +127,16 @@ YoloDetector/
 # 构建（0 error 即成功；警告应为 0，出现新警告要查明原因）
 dotnet build YoloDetector.csproj -v q
 
+# ★ 全量回归验证（交付前/改检测链路或线程代码后必跑；已沉淀为项目 skill）
+#   = 构建主项目 + 70 个进程内回归用例 + GUI 冒烟，退出码 0 即全绿
+powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scripts\Run-AllTests.ps1"
+
 # 更换 OpenCvSharp/OnnxRuntime/SkiaSharp 依赖版本后重新收集 native（日常无需执行；
 # 已沉淀为项目 skill：.opencode/skill/collect-native/SKILL.md）
 powershell -ExecutionPolicy Bypass -File tools\collect-native.ps1
 
-# 冒烟测试（GUI 改动/退出逻辑改动后必做）：启动 exe，存活观察，发关闭消息验证正常退出
+# 快速 GUI 冒烟（改动很小且不涉检测链路时可用；完整验证仍以 Run-AllTests 为准）：
+# 启动 exe，存活观察，发关闭消息验证正常退出
 $proc = Start-Process -FilePath "bin\Debug\net472\YoloDetector.exe" -PassThru
 Start-Sleep -Seconds 6
 if ($proc.HasExited) { "FAILED: 启动即退出 ExitCode=$($proc.ExitCode)" }
@@ -139,9 +144,14 @@ else { $proc.CloseMainWindow() | Out-Null; if ($proc.WaitForExit(8000)) { "PASS:
 ```
 
 - 成功标准：输出 `bin\Debug\net472\YoloDetector.exe`，退出码 0；日志文件出现配对的"程序启动/程序退出"标记。
-- 无单元测试框架；以**构建通过 + 冒烟测试**作为验证手段。涉及检测算法的改动，用本地图片直接喂 `YoloV26Detector.Detect(Mat)` 做对照验证，确保坐标映射/过滤行为不变。
+- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：70 用例 harness 覆盖配置/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理/管道线程协议/帧源/端到端/相机客户端与设备状态/日志门面与文件日志/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
+- 涉及检测算法的改动，除跑 skill 外再用本地图片直接喂 `YoloV26Detector.Detect(Mat)` 做对照验证，确保坐标映射/过滤行为不变。
 - **界面像素级 bug（竖线/颜色/叠色/裁剪/滚动条）**：调用技能 `winforms-ui-debug`（独立 harness 直 new 目标窗体 + PrintWindow 截图 + 像素扫描定位根因）。
 - **调试完自动沉淀技能**：用 `winforms-ui-debug` 或其他套路排查成功后，主动把可复用的新踩坑/新探针回写到对应 SKILL.md 与本文件。
+
+## 测试沉淀红线（强制，勿等用户提醒）
+
+**凡是为本项目新写的测试用例、冒烟步骤或调试探针，完成后必须沉淀进 `.opencode/skill/全量回归验证/` skill**（新用例加进 harness 对应分区 .cs 并在 TestFramework.cs 登记；一次性排查脚本若有复用价值也移入该 skill 目录），更新其 SKILL.md 的用例说明与总数，并跑通 `Run-AllTests.ps1` 全绿后才算完成。禁止把测试只留在会话里、散落在仓库其他位置或"下次要用时重写"。
 
 ## 文档同步（每次任务完成必做，逐条核对）
 

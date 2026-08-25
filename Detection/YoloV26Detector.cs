@@ -39,12 +39,15 @@ namespace YoloDetection
 
         public void Initialize(string modelPath)
         {
+            // 已释放检查必须在最前：Dispose 后调用本方法必须抛语义准确的
+            // ObjectDisposedException，而不是被后续校验抢先把异常类型误导成
+            // ArgumentNullException/FileNotFoundException（与 Detect 保持同一模式）
+            ThrowIfDisposed();
+
             if (string.IsNullOrEmpty(modelPath))
                 throw new ArgumentNullException(nameof(modelPath));
             if (!System.IO.File.Exists(modelPath))
                 throw new System.IO.FileNotFoundException("YOLO模型文件不存在", modelPath);
-
-            ThrowIfDisposed();
 
             var sessionOptions = new SessionOptions
             {

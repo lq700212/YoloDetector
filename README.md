@@ -107,10 +107,11 @@ dotnet build YoloDetector.csproj -v q
 
 | 文档 | 内容 |
 | --- | --- |
-| [AGENTS.md](AGENTS.md) | AI/维护者协作规范：铁律、分层边界、并发红线、构建验证命令 |
+| [AGENTS.md](AGENTS.md) | AI/维护者协作规范：铁律、分层边界、并发红线、构建验证命令、测试沉淀红线 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构分层图、线程模型、Mat 所有权链路、YOLO 推理实现细节 |
 | [docs/MODULE.md](docs/MODULE.md) | 检测模块接入指南：最小示例、接口扩展点、离线部署清单 |
 | [docs/ONNX模型获取指南.md](docs/ONNX模型获取指南.md) | 换模型时的下载与 pt→onnx 转换操作手册 |
+| [.opencode/skill/全量回归验证/](.opencode/skill/全量回归验证/SKILL.md) | 一键回归验证 skill：构建 + 70 个进程内回归用例 + GUI 冒烟（`Run-AllTests.ps1`），含模块↔用例对账表 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本改动记录 |
 
 ## 已知限制
