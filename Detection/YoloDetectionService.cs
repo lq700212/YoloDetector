@@ -42,6 +42,10 @@ namespace YoloDetection
         private long _detectCount;
         private long _detectFailCount;
 
+        // ESD 旁路状态：均只在检测线程上读写（单写者），与上面的计数器同一约定
+        private long _esdFrameCounter;
+        private EsdFrameSnapshot _lastEsdSnapshot;
+
         public event EventHandler<List<DetectionResult>> DetectionsUpdated;
 
         public event EventHandler<Mat> FrameProcessed;
@@ -75,6 +79,38 @@ namespace YoloDetection
             get { return _resultProcessor; }
             set { _resultProcessor = value ?? new DefaultResultProcessor(); }
         }
+
+        // ==================== 静电接触(ESD)旁路（可选） ====================
+        //
+        // 三件套均为 null 时完全旁路（零开销，行为与旧版一致）；
+        // 全部就位时，检测线程在 YOLO 检测之后顺路执行"姿态推理 → 接触状态机 → 叠加绘制"。
+        // ESD 步骤整体 try/catch 兜底：姿态模型/规则引擎出任何问题只记日志，
+        // 绝不影响人员检测主链路（现场可以放心开关）。
+
+        /// <summary>姿态检测器（null = 禁用 ESD 旁路；须已完成 Initialize）</summary>
+        public IPoseDetector PoseDetector { get; set; }
+
+        /// <summary>静电杆接触分析器（与 PoseDetector 同时配置才生效）</summary>
+        public EsdContactAnalyzer EsdAnalyzer { get; set; }
+
+        /// <summary>静电接触叠加渲染器（null = 只算不画；Draw 为原地绘制）</summary>
+        public IEsdOverlayRenderer EsdOverlay { get; set; }
+
+        /// <summary>
+        /// ESD 分析帧间隔 N：每 N 帧做一次姿态推理（1=每帧）。
+        /// CPU 环境下姿态推理较慢时可调大到 2~3 降低占用；
+        /// 接触判定基于时间累计（毫秒），降频不影响时长语义。
+        /// </summary>
+        public int EsdProcessEveryNFrames { get; set; } = 1;
+
+        /// <summary>每帧静电接触快照更新事件（参数为不可变快照；仅在 ESD 启用时触发）</summary>
+        public event EventHandler<EsdFrameSnapshot> EsdStatusUpdated;
+
+        /// <summary>
+        /// 某人触摸状态翻转事件 (trackId, 是否开始触摸, 累计毫秒)。
+        /// 仅在状态变化的那一帧触发一次——UI 日志/报警挂这里，不会刷屏。
+        /// </summary>
+        public event EventHandler<EsdContactChangedEventArgs> EsdContactChanged;
 
         /// <param name="detector">YOLO 检测器实例（必须已完成 Initialize）</param>
         public YoloDetectionService(IYoloDetector detector)
@@ -308,7 +344,12 @@ namespace YoloDetection
                 detections = processor.Process(detections, width, height) ?? new List<DetectionResult>();
             }
 
-            // 3. 发布结果快照（外部拿到的是独立副本，与内部状态完全隔离：
+            // 3. 静电接触(ESD)旁路（可选）：姿态推理 → 接触状态机。
+            //    三件套未配齐或到达降频间隔时跳过；整段 try/catch——
+            //    ESD 是附加能力，任何故障只记日志，绝不拖垮人员检测主链路。
+            RunEsdAnalysisIfEnabled(frame, detections, width, height);
+
+            // 4. 发布结果快照（外部拿到的是独立副本，与内部状态完全隔离：
             //    _lastDetections 与事件列表必须是不同实例，否则外部修改事件参数会污染内部状态）
             var snapshot = new List<DetectionResult>(detections);
             lock (_sync)
@@ -329,7 +370,7 @@ namespace YoloDetection
                 handler(this, new List<DetectionResult>(snapshot));
             }
 
-            // 4. 可视化绘制（Draw 返回的新 Mat 所有权移交给订阅者）
+            // 5. 可视化绘制（Draw 返回的新 Mat 所有权移交给订阅者）
             IDetectionVisualizer visualizer;
             lock (_sync)
             {
@@ -342,10 +383,96 @@ namespace YoloDetection
                 outputFrame = frame.Clone(); // 绘制失败时回退为原始帧副本
             }
 
+            // 6. ESD 叠加层：在可视化结果之上原地绘制 ROI/状态标签（不改所有权）
+            DrawEsdOverlay(outputFrame);
+
             var frameHandler = FrameProcessed;
             if (frameHandler != null)
             {
                 frameHandler(this, outputFrame);
+            }
+        }
+
+        /// <summary>
+        /// 执行静电接触旁路分析（仅检测线程调用）。
+        /// 节流策略：每 EsdProcessEveryNFrames 帧推理一次；跳过帧沿用上次快照供叠加层绘制，
+        /// 接触时长语义基于毫秒时间戳，降频不影响判定精度。
+        /// </summary>
+        private void RunEsdAnalysisIfEnabled(Mat frame, List<DetectionResult> detections, int width, int height)
+        {
+            IPoseDetector poseDetector = PoseDetector;
+            EsdContactAnalyzer analyzer = EsdAnalyzer;
+
+            if (poseDetector == null || !poseDetector.IsInitialized || analyzer == null)
+            {
+                return;
+            }
+
+            _esdFrameCounter++;
+            if (EsdProcessEveryNFrames > 1 && _esdFrameCounter % EsdProcessEveryNFrames != 0)
+            {
+                return; // 降频跳过帧：_lastEsdSnapshot 保持不变，叠加层继续显示上次结论
+            }
+
+            try
+            {
+                List<PoseResult> poses = poseDetector.Detect(frame, detections);
+
+                // 状态翻转先于快照事件发出（UI 先收到"开始触摸"再刷新统计，顺序更符合直觉）
+                analyzer.ContactChanged -= OnEsdContactChanged;
+                analyzer.ContactChanged += OnEsdContactChanged;
+
+                EsdFrameSnapshot snapshot = analyzer.Update(detections, poses, width, height);
+
+                lock (_sync)
+                {
+                    _lastEsdSnapshot = snapshot; // 仅供本线程的 DrawEsdOverlay 使用，加锁防读撕裂
+                }
+
+                var statusHandler = EsdStatusUpdated;
+                if (statusHandler != null)
+                {
+                    statusHandler(this, snapshot);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.GeneralLog($"[ESD] 静电接触分析异常(已跳过本帧): {ex.Message}");
+            }
+        }
+
+        private void OnEsdContactChanged(int trackId, bool inContact, double elapsedMs)
+        {
+            var handler = EsdContactChanged;
+            if (handler != null)
+            {
+                handler(this, new EsdContactChangedEventArgs(trackId, inContact, elapsedMs));
+            }
+        }
+
+        /// <summary>把最近一次 ESD 快照画到输出帧上（原地绘制；未启用或无快照则跳过）。</summary>
+        private void DrawEsdOverlay(Mat outputFrame)
+        {
+            IEsdOverlayRenderer overlay = EsdOverlay;
+            if (overlay == null)
+            {
+                return;
+            }
+
+            EsdFrameSnapshot snapshot;
+            lock (_sync)
+            {
+                snapshot = _lastEsdSnapshot;
+            }
+
+            try
+            {
+                overlay.Draw(outputFrame, snapshot, EsdAnalyzer != null ? EsdAnalyzer.Options : null);
+            }
+            catch (Exception ex)
+            {
+                // 绘制失败不影响预览帧继续下发（下一帧还会重试）
+                LogManager.GeneralLog($"[ESD] 叠加绘制异常: {ex.Message}");
             }
         }
 
@@ -364,15 +491,17 @@ namespace YoloDetection
                     _state = PipelineState.Idle;
                     _detectionThread = null;
 
-                    if (_pendingFrame != null)
-                    {
-                        _pendingFrame.Dispose();
-                        _pendingFrame = null;
-                    }
-
-                    _lastDetections.Clear();
+                if (_pendingFrame != null)
+                {
+                    _pendingFrame.Dispose();
+                    _pendingFrame = null;
                 }
+
+                _lastDetections.Clear();
+                _lastEsdSnapshot = null; // ESD 快照随会话清空，避免下次启动显示旧画面结论
+                _esdFrameCounter = 0;
             }
+        }
         }
 
         public void Dispose()

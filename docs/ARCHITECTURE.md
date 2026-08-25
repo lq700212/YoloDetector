@@ -1,4 +1,4 @@
-# YoloDetector 架构与技术要点
+﻿# YoloDetector 架构与技术要点
 
 > 面向 AI/新维护者的快速入手文档。读完本文 + 根目录 `AGENTS.md`（约定与红线）即可安全开工。
 > 配套阅读顺序建议：`AGENTS.md` → 本文 → 具体源码。
@@ -112,10 +112,12 @@ w' = w_model * scaleX;             h' = h_model * scaleY;             // 仅中�
 | `appsettings.json` | 仅 `ActiveCameraConfig` 激活品牌名 | CameraConfig |
 | `cameraConfigs/{品牌}.json` | 连接参数/API路径/流地址模板/刷新间隔 | CameraConfig 及嵌套子类 |
 | `Detection/yoloConfig.json` | 模型路径/阈值/可视化方案/日志开关 | YoloConfig |
+| `Detection/esdConfig.json` | 静电触摸检测：Enabled/姿态模型路径/ROI 归一化标定/Hold/Grace/Margin | EsdConfig → EsdAnalysisOptions |
 
 加载容错：文件缺失或损坏一律回退代码默认值。业务模块不直接读 AppConfig（由调用方注入参数值），保持 Detection 域零外部依赖。
 
 换 YOLO 模型：onnx 放 `Detection/model/`，改 yoloConfig.json 的 `ModelPath` 即可。模型获取/pt转onnx 见 `docs/ONNX模型获取指南.md`。
+静电触摸检测的姿态模型（yolo11n-pose.onnx）由 `tools/download_pose_model.py` 一键下载导出（官方 .pt 正源 + ultralytics 官方 API 导出）。
 
 ## 6. 已知限制（后续可改进项）
 

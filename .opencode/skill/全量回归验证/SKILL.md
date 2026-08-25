@@ -1,6 +1,6 @@
 ---
 name: "全量回归验证"
-description: "YoloDetector 一键全量回归验证：构建主项目、运行 70 个进程内回归用例（配置/Mat互转/宿主位图转换/后处理/可视化器/YOLO检测器/检测管道线程协议/帧源/端到端/相机客户端与设备状态/UI构造）+ 日志门面 + 文件日志、GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
+description: "YoloDetector 一键全量回归验证：构建主项目、运行 97 个进程内回归用例（配置含EsdConfig/Mat互转/宿主位图转换/后处理/可视化器/YOLO检测器/姿态检测器/静电接触分析器与叠加渲染/检测管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/UI构造）+ 日志门面 + 文件日志、GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
 ---
 
 # 全量回归验证
@@ -16,15 +16,19 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 7
 
 | 源文件 | 测试分区 |
 | --- | --- |
-| Configuration/AppConfig.cs、CameraConfig.cs、YoloConfig.cs | ConfigTests（含损坏回退/模板替换/模型存在性） |
+| Configuration/AppConfig.cs、CameraConfig.cs、YoloConfig.cs、EsdConfig.cs | ConfigTests（含损坏回退/模板替换/模型存在性/EsdConfig现场加载与ToOptions夹紧） |
 | Detection/MatExtensions.cs | MatExtensionsTests（像素级无损往返） |
 | App/SkBitmapExtensions.cs | SkBitmapExtensionTests（Bgra8888 错位回归防线，v2.1 真实花屏 bug） |
 | Detection/IDetectionResultProcessor.cs 三个处理器 + DetectionResult.cs | ProcessorTests（行为红线锁定） |
 | Detection/Visualizers.cs、YoloBuiltinVisualizer.cs | VisualizerTests（不污染原帧/null 契约/工厂） |
 | Detection/YoloV26Detector.cs | DetectorTests（真实模型推理契约） |
+| Detection/YoloPoseDetector.cs、PoseResult.cs | PoseTests（真实模型推理契约 + bus真图端到端：检人→姿态→手腕落位） |
+| Detection/EsdContactAnalyzer.cs、EsdAnalysisOptions.cs、EsdRoiRect.cs、EsdPersonStatus.cs | EsdAnalyzerTests（虚拟时钟驱动状态机全分支：Hold认定/宽限保持/超时退出/轨迹遗忘/快照隔离） |
+| Detection/EsdOverlayRenderer.cs、IEsdOverlayRenderer.cs | EsdAnalyzerTests 中 Overlay 契约用例（null参数安全/原地修改帧/空快照仍画ROI） |
+| Detection/YoloDetectionService.cs 的 ESD 旁路 + EsdOverlayRenderer.cs | EsdAnalyzerTests 尾部管道集成用例（事件联动/姿态异常不拖垮主检测/未配置零事件） |
 | Detection/YoloDetectionService.cs | PipelineTests（线程协议，FakeDetector 驱动） |
 | Detection/RtspFrameCapturer.cs | FrameSourceTests（视频文件流 + 拒绝连接） |
-| App/VideoDetectionController.cs | EndToEndTests（端到端全链路） |
+| App/VideoDetectionController.cs | EndToEndTests（端到端全链路 + ESD旁路装配/姿态模型缺失自动降级） |
 | App/CameraController.cs、CameraApiFactory.cs | CameraControllerTests（未连接契约/工厂） |
 | Cameras/AngehuaCameraApiClient.cs、DeviceStatus.cs | AngehuaClientTests（快速失败/有界超时/桩契约/使用率计算） |
 | Detection/LogManager.cs | LogManagerTests（三通道独立开关） |
@@ -53,6 +57,9 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 7
     ├── ProcessorTests.cs         后处理器行为红线（边界裁剪/10x20过滤）+ 结果模型属性
     ├── VisualizerTests.cs        可视化器契约（不污染原帧/null契约）
     ├── DetectorTests.cs          YoloV26Detector 真实模型推理契约
+    ├── assets/bus.jpg            官方多人街景基准图（姿态端到端用，构建时复制到 bin\assets）
+    ├── PoseTests.cs              YoloPoseDetector 契约 + bus真图端到端 + FakePoseDetector
+    ├── EsdAnalyzerTests.cs       静电接触状态机(虚拟时钟) + 管道ESD旁路集成
     ├── PipelineTests.cs          检测管道线程协议（快照隔离/异常零逃逸/停止协议）
     ├── FrameSourceTests.cs       帧源生命周期（本地视频文件当流源）
     ├── EndToEndTests.cs          控制器端到端（视频文件流+真模型全链路）
@@ -74,7 +81,7 @@ powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scr
 powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scripts\Invoke-SmokeTest.ps1"
 ```
 
-预期：harness 输出 `汇总: PASS=70 FAIL=0`；GUI 冒烟 `[SMOKE] 结果: 全部通过`；总退出码 0。
+预期：harness 输出 `汇总: PASS=97 FAIL=0`；GUI 冒烟 `[SMOKE] 结果: 全部通过`；总退出码 0。
 耗时参考：全程约 1~2 分钟（其中 RTSP 拒绝连接用例固定消耗约 30 秒，是 FFmpeg 内部超时的固有行为）。
 
 ## 新增测试用例的固定流程（AI 必须遵守）
@@ -107,6 +114,15 @@ powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scr
   YoloDetector.Tests.exe.config 与主程序 config 不同名，不会覆盖现场配置）；
 - **含中文的 ps1 脚本必须 UTF-8 带 BOM**（PowerShell 5.1 无 BOM 按 ANSI 解析）；
   harness 的 .cs 中文注释同理建议带 BOM。
+- **改了主项目代码只重编 harness 不生效**：harness 经 HintPath 引用 bin 下的
+  Detection.dll/exe——必须先构建主项目（Run-AllTests 已保证顺序，手工单独跑
+  Tests.exe 前务必先 dotnet build 主项目，否则跑的是旧逻辑，出现"修了还 FAIL"的假象；
+  实际踩坑：EsdContactAnalyzer 改完只编 harness，结束事件时长断言持续失败）；
+- **ESD/管道用例的人体框必须在帧内且分帧提交**：出界框被 DefaultResultProcessor
+  过滤导致快照为空、Persons[0] 越界；紧挨着提交两帧会被单槽位缓冲合并成
+  一帧（正常防积压语义），须 WaitFor 第 1 帧处理完再提交第 2 帧；
+- **归一化坐标换算断言禁止 float 精确相等**：0.2f/0.3f 是二进制无限小数，
+  乘帧宽后带尾差，会出现"打印值相同却断言失败"，用 Math.Abs(diff)<0.01 容差。
 
 ## 常见问题
 

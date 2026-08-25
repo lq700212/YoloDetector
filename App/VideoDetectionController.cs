@@ -33,6 +33,18 @@ namespace YoloDetector.App
 
         /// <summary>RTSP 流地址</summary>
         public string RtspUrl { get; set; }
+
+        /// <summary>
+        /// 姿态模型路径（YOLO-pose onnx）。与 EsdOptions 同时提供且 EsdOptions.Enabled=true 时，
+        /// 启动静电杆触摸检测旁路；任一缺失则维持纯人员检测行为。
+        /// </summary>
+        public string PoseModelPath { get; set; }
+
+        /// <summary>
+        /// 静电接触检测参数（null 或 Enabled=false 时禁用）。
+        /// 由宿主从 Detection/esdConfig.json 转换而来。
+        /// </summary>
+        public YoloDetection.EsdAnalysisOptions EsdOptions { get; set; }
     }
 
     /// <summary>
@@ -54,8 +66,15 @@ namespace YoloDetector.App
         private readonly Action<List<YoloDetection.DetectionResult>> _detectionSink;
 
         private YoloDetection.IYoloDetector _detector;
+        private YoloDetection.IPoseDetector _poseDetector;
         private YoloDetection.IDetectionPipeline _pipeline;
         private YoloDetection.IFrameSource _frameSource;
+
+        /// <summary>
+        /// 某人触摸静电杆状态翻转事件 (trackId, 是否开始触摸, 累计毫秒)。
+        /// 仅在状态变化帧触发一次；后台线程触发，订阅方自行调度。
+        /// </summary>
+        public event EventHandler<YoloDetection.EsdContactChangedEventArgs> EsdContactChanged;
 
         public VideoDetectionController(
             Action<System.Drawing.Bitmap> previewSink,
@@ -107,6 +126,37 @@ namespace YoloDetector.App
                 NmsThreshold = options.NmsThreshold
             };
 
+            // 3.1 静电接触(ESD)旁路装配：参数与姿态模型路径齐备才启用
+            //     （Enabled 开关由宿主处理——关闭时宿主直接传 null）。
+            //     装配失败（如姿态模型文件缺失）只降级为纯人员检测并告警，
+            //     不让整个预览启动失败——人员检测是主业务，不能被附加功能拖死
+            bool esdEnabled = false;
+            if (options.EsdOptions != null && !string.IsNullOrEmpty(options.PoseModelPath))
+            {
+                try
+                {
+                    EnsurePoseDetector(options);
+                    pipeline.PoseDetector = _poseDetector;
+                    pipeline.EsdAnalyzer = new YoloDetection.EsdContactAnalyzer(options.EsdOptions);
+                    if (options.EsdOptions.DrawOverlay)
+                    {
+                        pipeline.EsdOverlay = new YoloDetection.EsdOverlayRenderer();
+                    }
+                    pipeline.EsdProcessEveryNFrames = 1; // 节流由宿主配置预留，当前每帧分析
+                    esdEnabled = true;
+                }
+                catch (Exception ex)
+                {
+                    YoloDetection.LogManager.GeneralLog(
+                        $"[ESD] 静电接触检测启用失败，已降级为纯人员检测: {ex.Message}");
+                }
+            }
+
+            if (esdEnabled)
+            {
+                pipeline.EsdContactChanged += HandlePipelineEsdChanged;
+            }
+
             pipeline.DetectionsUpdated += OnDetectionsUpdated;
             pipeline.FrameProcessed += OnFrameProcessed;
             pipeline.Start();
@@ -142,6 +192,13 @@ namespace YoloDetector.App
             {
                 _pipeline.DetectionsUpdated -= OnDetectionsUpdated;
                 _pipeline.FrameProcessed -= OnFrameProcessed;
+
+                var esdService = _pipeline as YoloDetection.YoloDetectionService;
+                if (esdService != null)
+                {
+                    esdService.EsdContactChanged -= HandlePipelineEsdChanged;
+                }
+
                 _pipeline.Dispose();
                 _pipeline = null;
             }
@@ -155,6 +212,13 @@ namespace YoloDetector.App
             {
                 _detector.Dispose();
                 _detector = null;
+            }
+
+            // 姿态检测器同样跨会话复用，仅在控制器整体销毁时释放
+            if (_poseDetector != null)
+            {
+                _poseDetector.Dispose();
+                _poseDetector = null;
             }
         }
 
@@ -189,6 +253,41 @@ namespace YoloDetector.App
 
             _detector.ConfidenceThreshold = options.ConfidenceThreshold;
             _detector.NmsThreshold = options.NmsThreshold;
+        }
+
+        /// <summary>
+        /// 姿态检测器的创建与跨会话复用（与 EnsureDetector 同一模式：
+        /// 模型加载秒级，反复启停预览不重复加载）。
+        /// 模型文件不存在时抛 FileNotFoundException，由 Start 的 try/catch 降级处理。
+        /// </summary>
+        private void EnsurePoseDetector(DetectionStartupOptions options)
+        {
+            if (!System.IO.File.Exists(options.PoseModelPath))
+            {
+                throw new System.IO.FileNotFoundException("姿态模型文件不存在", options.PoseModelPath);
+            }
+
+            if (_poseDetector == null || !_poseDetector.IsInitialized)
+            {
+                if (_poseDetector != null)
+                {
+                    _poseDetector.Dispose();
+                }
+
+                var poseDetector = new YoloDetection.YoloPoseDetector();
+                try
+                {
+                    poseDetector.Initialize(options.PoseModelPath);
+                }
+                catch
+                {
+                    poseDetector.Dispose();
+                    throw;
+                }
+                _poseDetector = poseDetector;
+            }
+
+            _poseDetector.KeyPointConfidenceThreshold = options.EsdOptions.WristConfidenceThreshold;
         }
 
         /// <summary>帧源出帧 → 提交管道检测。Mat 所有权在本方法内终结。</summary>
@@ -238,6 +337,16 @@ namespace YoloDetector.App
         private void OnDetectionsUpdated(object sender, List<YoloDetection.DetectionResult> detections)
         {
             _detectionSink(detections);
+        }
+
+        /// <summary>管道 ESD 翻转事件 → 直接转发给宿主订阅者（快照参数不可变，可安全透传）。</summary>
+        private void HandlePipelineEsdChanged(object sender, YoloDetection.EsdContactChangedEventArgs e)
+        {
+            var handler = EsdContactChanged;
+            if (handler != null)
+            {
+                handler(this, e);
+            }
         }
     }
 }

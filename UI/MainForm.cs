@@ -365,7 +365,13 @@ namespace YoloDetector.UI
                     RtspUrl = rtspUrl,
                     // 注入 UI 日志回调：检测线程的异常/过程日志同步显示到界面面板，
                     // 否则现场排查"为什么检测不到"只能翻日志文件
-                    LogSink = msg => SafeBeginInvoke(() => AppendLogToPanel(msg))
+                    LogSink = msg => SafeBeginInvoke(() => AppendLogToPanel(msg)),
+                    // 静电杆触摸检测旁路：模型/参数从 esdConfig.json 来；
+                    // Enabled=false 时传 null 等价于关闭，管道零开销
+                    PoseModelPath = AppConfig.Esd.Enabled
+                        ? ExpandModelPath(AppConfig.Esd.PoseModelPath)
+                        : null,
+                    EsdOptions = AppConfig.Esd.Enabled ? AppConfig.Esd.ToOptions() : null
                 };
 
                 _videoController.Start(options);
@@ -413,6 +419,16 @@ namespace YoloDetector.UI
             _videoController = new VideoDetectionController(
                 previewSink: OnPreviewFrameReceived,
                 detectionSink: OnDetectionsReceived);
+
+            // 静电触摸状态翻转 → 日志面板提示（仅在事件帧触发一次，不会刷屏）。
+            // 回调在检测线程触发，经 SafeBeginInvoke 调度回 UI 线程。
+            _videoController.EsdContactChanged += (s, e) =>
+            {
+                string msg = e.InContact
+                    ? $"⚡人员#{e.TrackId} 正在触摸静电杆 (持续{e.ContactElapsedMs / 1000.0:F1}秒)"
+                    : $"人员#{e.TrackId} 结束触摸静电杆";
+                SafeBeginInvoke(() => AddLog(msg));
+            };
         }
 
         private static string ExpandModelPath(string modelPath)

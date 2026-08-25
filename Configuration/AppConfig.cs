@@ -21,6 +21,7 @@ namespace YoloDetector.Configuration
 
         private static CameraConfig _current;
         private static YoloConfig _yoloConfig;
+        private static EsdConfig _esdConfig;
         private static readonly object _lockObj = new object();
 
         private static readonly string ConfigFilePath =
@@ -31,6 +32,9 @@ namespace YoloDetector.Configuration
 
         private static readonly string YoloConfigFilePath =
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Detection", "yoloConfig.json");
+
+        private static readonly string EsdConfigFilePath =
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Detection", "esdConfig.json");
 
         static AppConfig()
         {
@@ -92,7 +96,33 @@ namespace YoloDetector.Configuration
             }
         }
 
-        /// <summary>加载完整配置（主配置 + 品牌配置 + YOLO 配置）</summary>
+        /// <summary>静电接触(ESD)检测配置（首次访问时自动加载）</summary>
+        public static EsdConfig Esd
+        {
+            get
+            {
+                if (_esdConfig == null)
+                {
+                    lock (_lockObj)
+                    {
+                        if (_esdConfig == null)
+                        {
+                            if (IsDesignMode())
+                            {
+                                _esdConfig = new EsdConfig();
+                            }
+                            else
+                            {
+                                LoadEsdConfig();
+                            }
+                        }
+                    }
+                }
+                return _esdConfig;
+            }
+        }
+
+        /// <summary>加载完整配置（主配置 + 品牌配置 + YOLO 配置 + ESD 配置）</summary>
         public static void Load()
         {
             string activeBrand = DefaultBrand;
@@ -115,9 +145,10 @@ namespace YoloDetector.Configuration
                 System.Diagnostics.Debug.WriteLine("主配置文件加载失败: " + ex.Message);
             }
 
-            // 步骤2：加载品牌配置；步骤3：加载YOLO配置
+            // 步骤2：加载品牌配置；步骤3：加载YOLO配置；步骤4：加载ESD配置
             LoadBrandConfig(activeBrand);
             LoadYoloConfig();
+            LoadEsdConfig();
         }
 
         /// <summary>加载指定品牌的配置文件（失败时回退到代码默认值）</summary>
@@ -200,6 +231,42 @@ namespace YoloDetector.Configuration
                 _yoloConfig = new YoloConfig();
             }
             System.Diagnostics.Debug.WriteLine("使用YOLO默认配置");
+        }
+
+        /// <summary>加载静电接触(ESD)配置文件（失败时回退到代码默认值）</summary>
+        public static void LoadEsdConfig()
+        {
+            try
+            {
+                if (File.Exists(EsdConfigFilePath))
+                {
+                    string json = File.ReadAllText(EsdConfigFilePath);
+                    var config = JsonConvert.DeserializeObject<EsdConfig>(json);
+                    if (config != null)
+                    {
+                        lock (_lockObj)
+                        {
+                            _esdConfig = config;
+                        }
+                        System.Diagnostics.Debug.WriteLine("ESD配置加载成功");
+                        return;
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("ESD配置文件不存在: " + EsdConfigFilePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("ESD配置文件加载失败: " + ex.Message);
+            }
+
+            lock (_lockObj)
+            {
+                _esdConfig = new EsdConfig();
+            }
+            System.Diagnostics.Debug.WriteLine("使用ESD默认配置");
         }
 
         private static void EnsureBrandConfigsDirectoryExists()

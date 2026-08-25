@@ -2,6 +2,40 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.2（2026-08-26）静电杆触摸检测（姿态关键点 + 区域规则）
+
+### 改动范围
+
+**新功能：在人员检测基础上叠加"手部动作识别"——判定画面中的人是否正在触摸静电杆**（工厂防静电场景）。技术路线为「YOLO-pose 人体关键点 + 静电杆 ROI 几何规则」，不引入第二个黑盒模型做动作分类，判定完全可解释、阈值全部可配置：
+
+- **Detection 类库新增**（命名空间 `YoloDetection`，零宿主依赖，可随模块整体迁移）：
+  - `YoloPoseDetector` / `IPoseDetector`：对已检出的人体框逐人裁剪扩边 → letterbox → 推理 → 解析 COCO 17 关键点（含左右手腕 idx 9/10）→ 坐标还原原图。自动兼容 `[1,C,N]`/`[1,N,C]` 双输出布局与动态维度探测；单帧最多推理 `MaxPersonsPerFrame`(默认8) 人防拥挤卡顿
+  - `EsdContactAnalyzer`：接触状态机——手腕落 ROI(含 MarginPx 容差) 持续 ≥`HoldDurationMs` 判定"正在触摸"；短暂丢失 `ReleaseGraceMs` 内不断开（防遮挡抖动）；跨帧按人体框中心贪心最近邻跟踪并分配自增 TrackId；人离场超时轨迹遗忘、重新计时。纯逻辑无 IO，虚拟时钟可单测
+  - `EsdOverlayRenderer` / `IEsdOverlayRenderer`：OpenCV 原地绘制 ROI 黄框("ESD POLE")、接触者绿框("ESD OK")/未接触灰框、手腕落点徽标、底部统计行（英文标签规避 PutText 中文乱码）
+  - 配套模型类：`PoseResult`/`PoseKeypoint`/`CocoKeyPointIndexes`、`EsdAnalysisOptions`、`EsdPersonStatus`/`EsdFrameSnapshot`（不可变快照）、`EsdContactChangedEventArgs`、`EsdRoiRect`
+- **检测管道可选旁路**：`YoloDetectionService` 新增 `PoseDetector`/`EsdAnalyzer`/`EsdOverlay` 三件套属性与 `EsdStatusUpdated`/`EsdContactChanged` 事件——三件套未配齐时**完全旁路零开销**（行为与旧版一致）；配齐后在 YOLO 检测后顺路执行"姿态→状态机"，整段 try/catch 兜底，ESD 故障绝不影响人员检测主链路；支持 `EsdProcessEveryNFrames` 降频（时长判定基于毫秒时间戳，降频不影响精度）
+- **编排层**：`VideoDetectionController` 姿态检测器跨会话复用（同主检测器的 Ensure 模式）；启动装配失败只降级为纯人员检测并告警，不让预览启动失败；`EsdContactChanged` 转发给宿主
+- **宿主配置**：新增 `Configuration/EsdConfig.cs` + `Detection/esdConfig.json`（ROI 归一化坐标、Hold/Grace 时长、容差、置信度阈值等全配置化，`ToOptions()` 就地夹紧非法值），AppConfig 同模式加载
+- **UI**：触摸状态翻转时日志面板提示一次（"人员#N 正在/结束触摸静电杆"），不刷屏
+- **模型获取脚本** `tools/download_pose_model.py`：多级回退（ONNX 直链候选 → 官方 .pt 权重 + ultralytics 官方 API 导出），自动读取 Windows 系统代理（VPN"系统代理"模式下 Python urllib 默认不走代理会全部超时的坑已内置处理）；产出 `Detection/model/yolo11n-pose.onnx`(11.3MB, 输入640x640/输出[1,56,8400]/17关键点) 已入 git，克隆即用
+- **回归体系扩充 70→97 用例**：新增 PoseTests 分区（契约 + 合成图 + **bus.jpg 官方真图端到端对照：检人4人→4人完整17点→手腕坐标落位，与 Python ultralytics 基准一致**）；EsdAnalyzerTests 分区（虚拟时钟驱动状态机全分支 11 例 + 叠加渲染器契约 2 例 + 管道 ESD 旁路集成 3 例）；ConfigTests 补 EsdConfig 现场加载与 ToOptions 非法值夹紧 2 例；EndToEndTests 补"姿态模型缺失自动降级为纯人员检测"与"带 ESD 旁路视频流全链路"2 例；SKILL.md 对账表同步
+
+### 为什么这么改
+
+用户需求："后续要在识别到人的基础上对手部动作进行识别，场景是工厂里，识别有没有摸静电杆的动作"。选型说明：时序动作识别模型（ST-GCN 等）部署重、不可解释、无现成 ONNX；工业防静电监测的成熟做法就是"手腕关键点 + 静电杆区域 + 持续时长"规则引擎——复用现有人体检测链路（pose 只对人框小图推理，省算力且天然归属到人），现场只需按摄像头视野标定一次 ROI 黄框即可使用。模型下载按用户要求做成 Python 脚本全自动完成（官方 .pt 正源 + 官方 API 导出，不用来路不明的第三方 onnx）。
+
+### 修复（开发中被新用例当场暴露，均已修）
+
+- **EsdContactAnalyzer 轨迹遗忘顺序 bug**：原实现"先匹配后遗忘"，长时间离场的人一回来就被旧轨迹近邻吸走，永远走不到遗忘分支，"重新计时"语义失效——改为先遗忘后匹配
+- **dt 异常钳制过紧**：上限 1000ms 会把"降频 × 低帧率 RTSP"叠加出的合法帧间隔误判为异常清零接触累计——放宽至 5 秒并注释原因
+- **结束触摸事件时长恒为 0**：事件在累计清零后才触发，日志只能打出"持续0秒"——改为携带清零前的最终时长
+
+### 优化点
+
+- 姿态预处理与主检测器同一套高性能套路（Marshal.Copy 整块拷贝 + 单层循环填 CHW），刻意不抽公共类避免触碰已验证代码
+- ESD 叠加走 OpenCV 原地矢量绘制（微秒级），不走 Skia 位图往返（约 10ms），预览帧零额外拷贝
+- 测试沉淀新增踩坑：harness 引用 bin 下 DLL——改主项目代码必须先重建主项目再跑 Tests.exe，否则跑旧逻辑出现"修了还 FAIL"假象；归一化坐标换算断言禁用 float 精确相等（0.3f×800≠240f 的尾差坑）
+
 ## v2.1（2026-08-25）全量回归验证体系（skill 化）
 
 ### 改动范围

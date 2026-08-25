@@ -22,6 +22,8 @@ namespace YoloDetector.Tests
             T.Case("端到端-options与地址参数校验", ArgumentValidation);
             T.Case("端到端-模型不存在抛异常且状态干净", MissingModelRecovers);
             T.Case("端到端-全链路视频文件流跑通", FullChainWithFileSource);
+            T.Case("端到端-姿态模型缺失自动降级为纯人员检测", EsdMissingPoseModelDegrades);
+            T.Case("端到端-带ESD旁路视频流全链路", FullChainWithEsd);
         }
 
         private static DetectionStartupOptions MakeOptions(string url)
@@ -134,6 +136,100 @@ namespace YoloDetector.Tests
                 }
 
                 T.Info("端到端共收到 Bitmap=" + bitmaps + " 结果事件=" + resultEvents);
+            }
+            finally
+            {
+                if (File.Exists(videoPath))
+                {
+                    File.Delete(videoPath);
+                }
+            }
+        }
+
+        /// <summary>
+        /// v2.2 关键降级行为：姿态模型缺失时 Start 必须成功（降级为纯人员检测 +
+        /// 日志告警），绝不允许 ESD 附加功能把主业务拖死。
+        /// </summary>
+        private static void EsdMissingPoseModelDegrades()
+        {
+            string videoPath = FrameSourceTests.CreateTestVideo();
+            if (videoPath == null)
+            {
+                return;
+            }
+
+            try
+            {
+                int resultEvents = 0;
+                using (var controller = new VideoDetectionController(
+                    previewSink: bmp => bmp.Dispose(),
+                    detectionSink: list => Interlocked.Increment(ref resultEvents)))
+                {
+                    var options = MakeOptions(videoPath);
+                    options.PoseModelPath = TestUtil.BinPath("Detection", "model", "no_such_pose.onnx");
+                    options.EsdOptions = new YoloDetection.EsdAnalysisOptions(); // 参数齐但模型缺
+
+                    // 不应抛 FileNotFoundException——内部 catch 后降级
+                    controller.Start(options);
+                    T.True(controller.IsRunning, "姿态模型缺失时预览必须照常启动");
+
+                    T.True(T.WaitFor(() => Volatile.Read(ref resultEvents) > 0, 20000),
+                        "降级后人员检测结果必须照常发布");
+                    controller.Stop();
+                }
+            }
+            finally
+            {
+                if (File.Exists(videoPath))
+                {
+                    File.Delete(videoPath);
+                }
+            }
+        }
+
+        /// <summary>带 ESD 旁路的完整链路：真姿态模型装配 + 预览/结果事件照常</summary>
+        private static void FullChainWithEsd()
+        {
+            string videoPath = FrameSourceTests.CreateTestVideo();
+            if (videoPath == null)
+            {
+                return;
+            }
+
+            try
+            {
+                int bitmaps = 0, resultEvents = 0, contactEvents = 0;
+
+                using (var controller = new VideoDetectionController(
+                    previewSink: bmp => { Interlocked.Increment(ref bitmaps); bmp.Dispose(); },
+                    detectionSink: list => Interlocked.Increment(ref resultEvents)))
+                {
+                    // 触摸翻转事件挂计数（视频里无人摸杆，预期不触发——验证"不触发也不崩"）
+                    controller.EsdContactChanged += (s, e) => Interlocked.Increment(ref contactEvents);
+
+                    var options = MakeOptions(videoPath);
+                    options.PoseModelPath = TestUtil.BinPath("Detection", "model", "yolo11n-pose.onnx");
+                    options.EsdOptions = new YoloDetection.EsdAnalysisOptions
+                    {
+                        RoiX = 0.4f, RoiY = 0.2f, RoiW = 0.2f, RoiH = 0.3f,
+                        HoldDurationMs = 1500,
+                        DrawOverlay = true // 叠加渲染器也一并装配，验证绘制路径
+                    };
+
+                    controller.Start(options);
+                    T.True(controller.IsRunning, "带ESD旁路启动应成功（姿态模型已加载）");
+
+                    T.True(T.WaitFor(() => Volatile.Read(ref resultEvents) > 0, 20000),
+                        "检测结果事件应正常到达");
+                    T.True(T.WaitFor(() => Volatile.Read(ref bitmaps) >= 3, 20000),
+                        "预览 Bitmap 应持续输出(含叠加绘制路径), 实际=" + bitmaps);
+
+                    controller.Stop();
+                    T.False(controller.IsRunning, "Stop 后应停止");
+                }
+
+                T.Info("ESD端到端: Bitmap=" + bitmaps + " 结果=" + resultEvents +
+                       " 触摸翻转=" + contactEvents + "(合成图无人,0属正常)");
             }
             finally
             {

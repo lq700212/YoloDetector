@@ -1,4 +1,4 @@
-# AGENTS.md — YoloDetector 摄像头实时人员检测系统 项目指南
+﻿# AGENTS.md — YoloDetector 摄像头实时人员检测系统 项目指南
 
 > 本文件是 AI 助手在操作本项目前的**强制前置阅读**。开工前先读本文件，明确角色、约定与红线。
 > 优先级：本文档 > 项目已有代码风格 > 通用最佳实践。
@@ -7,7 +7,7 @@
 
 你是本项目（Windows 窗体 C#/.NET Framework 应用）的**资深维护工程师**，负责按用户需求改代码、修 bug、沉淀约定。改动必须**可编译、可运行、风格统一**，并在关键改动后更新 `CHANGELOG.md`。
 
-本项目功能：通过 RTSP 流接入网络摄像头，使用 YOLO（ONNX Runtime）对视频帧做**实时人员检测**，检测结果叠加绘制后显示到预览窗口。
+本项目功能：通过 RTSP 流接入网络摄像头，使用 YOLO（ONNX Runtime）对视频帧做**实时人员检测**，检测结果叠加绘制后显示到预览窗口。在此基础上支持**静电杆触摸检测**（YOLO-pose 人体关键点 + 静电杆 ROI 区域规则，工厂防静电场景）。
 
 ## 技术栈
 
@@ -38,7 +38,8 @@ YoloDetector/
 ├── Infrastructure/Logging/ 文件日志 Logger
 ├── appsettings.json        主配置（激活品牌名 ActiveCameraConfig）
 ├── cameraConfigs/*.json    各品牌相机参数
-└── Detection/yoloConfig.json + Detection/model/*.onnx   YOLO 配置与模型（归属主项目，类库只收参数）
+├── Detection/yoloConfig.json + esdConfig.json          YOLO 与静电触摸检测配置（归属主项目，类库只收参数）
+└── Detection/model/*.onnx                              检测与姿态模型（含 yolo11n-pose，脚本 tools/download_pose_model.py 下载）
 ```
 
 依赖方向：`UI → App → Detection/Cameras → Infrastructure/Configuration`。**UI 层禁止接触 OpenCV Mat**；**Detection 层禁止依赖 AppConfig/UI**（所需配置由调用方经参数注入）。**Detection 是独立类库程序集（命名空间 `YoloDetection`）**：禁止 using 宿主业务命名空间（UI/App/Cameras/Configuration/Infrastructure），日志经 `LogManager.Initialize(outputSink:, uiSink:)` 委托注入——保证整目录可迁移（接入指南 `docs/MODULE.md`）。
@@ -47,8 +48,9 @@ YoloDetector/
 
 1. **文件编码必须是 UTF-8**（无 BOM 或带 BOM 均可，跟随同目录文件）。
    - **禁止用 PowerShell `Set-Content` / `Add-Content` / `Out-File` 写含中文的源码或配置文件**——本项目已实际发生过：一次替换操作把 UTF-8 中文注释转成乱码，还把字段声明吞进了乱码注释行导致编译失败。写文件一律用 write 工具；局部修改用 edit 工具。
+   - **`Get-Content | Set-Content` 组合同样会炸**（v2.2 实际再踩一次）：Get-Content 不带 -Encoding 按 ANSI 读 UTF-8 中文，管道替换后写回即永久乱码——即使只是"顺手改个标识符"也不行。若必须用 PowerShell 批量替换，唯一安全姿势是 `[IO.File]::ReadAllText(path, [Text.Encoding]::UTF8)` 读 + `.Replace()` + `[IO.File]::WriteAllText(path, text, [Text.Encoding]::UTF8)` 写，改完立即用铁律 1 的自查命令验证。
    - 新增/修改中文文件后自查：`[IO.File]::ReadAllText(path, [Text.Encoding]::UTF8).Contains("预期中文")` 能命中。
-2. **运行配置与数据不混入源码**：`appsettings.json`、`cameraConfigs\*.json`、`Detection\yoloConfig.json` 是现场运行配置（阈值、IP、地址模板都靠它们调），`Detection\model\*.onnx` 是模型文件（大二进制）。调试时**不得为图方便把这些文件的值改死后提交**；需要改默认值时同步修改对应的 Configuration 模型类默认值并在响应中说明。
+2. **运行配置与数据不混入源码**：`appsettings.json`、`cameraConfigs\*.json`、`Detection\yoloConfig.json`、`Detection\esdConfig.json` 是现场运行配置（阈值、IP、地址模板、静电杆 ROI 标定都靠它们调），`Detection\model\*.onnx` 是模型文件（大二进制）。调试时**不得为图方便把这些文件的值改死后提交**；需要改默认值时同步修改对应的 Configuration 模型类默认值并在响应中说明。
 3. **改动后必须构建验证**，禁止交付编译不过的代码。涉及启动/退出的改动加冒烟测试（见下文命令）。
 4. **不主动 commit/push**，除非用户明确要求；提交前先 `git status` + `git diff` 确认只包含预期改动。**`.gitignore` 检查是每次交付的固定动作，不要等用户提醒**：
    - 新增/改动了会周期性产生文件的逻辑（日志、缓存、截图、导出文件）时，先确认对应目录/模式已在 `.gitignore`，没有就补上；
@@ -111,14 +113,19 @@ YoloDetector/
 | `Detection/YoloDetectionService.cs` | 检测管道（Monitor 生产者-消费者、单槽位缓冲、快照事件、有界停止） |
 | `Detection/RtspFrameCapturer.cs` | RTSP 帧捕获（锁保护的 VideoCapture、BGR 统一转换、失败路径零泄漏） |
 | `Detection/YoloV26Detector.cs` | YOLO 推理：letterbox 预处理、双格式输出解析、NMS、TargetClassIds 过滤 |
+| `Detection/YoloPoseDetector.cs` | YOLO-pose 姿态推理：逐人裁剪扩边→17关键点还原；输出布局/动态维自动兼容 |
+| `Detection/EsdContactAnalyzer.cs` | 静电杆接触状态机（手腕落区+持续时长认定+宽限保持+轨迹跟踪）；仅检测线程串行调用 |
+| `Detection/EsdOverlayRenderer.cs` | 静电接触叠加绘制（OpenCV 原地矢量绘制；标签用英文，PutText 不支持中文） |
 | `Detection/MatExtensions.cs` | Mat↔SKBitmap 高性能互转（唯一转换入口，全平台无损） |
 | `Detection/YoloBuiltinVisualizer.cs` | Skia 红框可视化器（跨平台；工厂与 OpenCV 绿框在 Visualizers.cs） |
 | `Detection/IDetectionPipeline.cs` / `IFrameSource.cs` / `IYoloDetector.cs` / `IDetectionVisualizer.cs` / `IDetectorFactory.cs` / `IDetectionResultProcessor.cs` | 检测域各抽象接口（含所有权/线程契约注释） |
 | `Cameras/ICameraApi.cs` | 相机 API 抽象（构造注入 IP，方法不带 ip 参数）；实现放 `AngehuaCameraApiClient.cs`，新品牌照此模式扩展并在 `CameraApiFactory` 注册 |
-| `Configuration/AppConfig.cs` | 配置组合根（静态加载器）；配置模型在同目录 `CameraConfig.cs` / `YoloConfig.cs` |
+| `Configuration/AppConfig.cs` | 配置组合根（静态加载器）；配置模型在同目录 `CameraConfig.cs` / `YoloConfig.cs` / `EsdConfig.cs` |
 | `Detection/LogManager.cs` | 检测模块日志门面（分级开关 + 输出/UI 通道委托注入，模块内零宿主依赖） |
 | `Infrastructure/Logging/Logger.cs` | 文件日志（logs\log_yyyy-MM-dd.txt，UTF-8） |
 | `Detection/yoloConfig.json` | YOLO 运行参数（阈值、模型路径、可视化方案、日志开关） |
+| `Detection/esdConfig.json` | 静电触摸检测运行参数（Enabled/姿态模型路径/ROI 标定/Hold/Grace），宿主 `EsdConfig.ToOptions()` 转模块参数注入 |
+| `tools/download_pose_model.py` | 姿态模型下载脚本（官方 .pt 正源 + ultralytics 导出；自动挂系统代理；含中文必须保持 UTF-8，禁 PowerShell 管道改写） |
 | `docs/ARCHITECTURE.md` | 架构与技术要点（分层图、线程模型、Mat 所有权链路、YOLO 推理实现细节、已知限制）——**AI 快速入手必读** |
 
 ## 构建与验证命令
@@ -144,7 +151,7 @@ else { $proc.CloseMainWindow() | Out-Null; if ($proc.WaitForExit(8000)) { "PASS:
 ```
 
 - 成功标准：输出 `bin\Debug\net472\YoloDetector.exe`，退出码 0；日志文件出现配对的"程序启动/程序退出"标记。
-- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：70 用例 harness 覆盖配置/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理/管道线程协议/帧源/端到端/相机客户端与设备状态/日志门面与文件日志/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
+- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：97 用例 harness 覆盖配置含EsdConfig/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理/姿态检测器/静电接触状态机与叠加渲染/管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
 - 涉及检测算法的改动，除跑 skill 外再用本地图片直接喂 `YoloV26Detector.Detect(Mat)` 做对照验证，确保坐标映射/过滤行为不变。
 - **界面像素级 bug（竖线/颜色/叠色/裁剪/滚动条）**：调用技能 `winforms-ui-debug`（独立 harness 直 new 目标窗体 + PrintWindow 截图 + 像素扫描定位根因）。
 - **调试完自动沉淀技能**：用 `winforms-ui-debug` 或其他套路排查成功后，主动把可复用的新踩坑/新探针回写到对应 SKILL.md 与本文件。

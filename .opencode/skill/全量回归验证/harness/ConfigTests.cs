@@ -26,6 +26,8 @@ namespace YoloDetector.Tests
             T.Case("配置-RtspUrl模板占位符替换", RtspUrlTemplate);
             T.Case("配置-加载不存在品牌回退默认值", BrandFallbackOnMissing);
             T.Case("配置-加载损坏JSON回退默认值", BrandFallbackOnBrokenJson);
+            T.Case("配置-EsdConfig现场加载且模型存在", EsdConfigSane);
+            T.Case("配置-EsdConfig.ToOptions非法值夹紧", EsdToOptionsClamps);
         }
 
         /// <summary>验证真实现场配置能正常加载且取值在合法范围</summary>
@@ -108,6 +110,67 @@ namespace YoloDetector.Tests
                 }
                 AppConfig.Load();
             }
+        }
+
+        /// <summary>
+        /// 现场静电触摸配置能正常加载，且指向的姿态模型真实存在
+        /// （模型缺失时控制器会降级为纯人员检测——但现场配置错误应当在此暴露）。
+        /// 只读访问 AppConfig.Esd 不改静态状态，无需恢复。
+        /// </summary>
+        private static void EsdConfigSane()
+        {
+            var esd = AppConfig.Esd;
+            T.True(esd != null, "Esd 配置不应为 null（懒加载兜底）");
+
+            // 模型路径非空且文件存在（与 yolo.ModelPath 同一检查标准）
+            T.False(string.IsNullOrEmpty(esd.PoseModelPath), "PoseModelPath 应非空");
+            string poseModel = TestUtil.BinPath(esd.PoseModelPath.Replace('/', '\\'));
+            T.True(File.Exists(poseModel), "姿态模型文件应存在: " + poseModel);
+
+            // 时序参数必须为正（0 或负会让状态机行为异常：Hold=0 一碰就算、Grace=0 无防抖）
+            T.True(esd.HoldDurationMs > 0, "HoldDurationMs 应为正数，实际=" + esd.HoldDurationMs);
+            T.True(esd.ReleaseGraceMs >= 0, "ReleaseGraceMs 应非负");
+
+            // ROI 归一化坐标在 [0,1]（现场手改 JSON 最容易出界）
+            T.True(esd.RoiX >= 0f && esd.RoiX <= 1f, "RoiX 应在[0,1]，实际=" + esd.RoiX);
+            T.True(esd.RoiY >= 0f && esd.RoiY <= 1f, "RoiY 应在[0,1]，实际=" + esd.RoiY);
+
+            T.Info("现场ESD配置: Enabled=" + esd.Enabled +
+                   " ROI=(" + esd.RoiX + "," + esd.RoiY + "," + esd.RoiW + "," + esd.RoiH + ")" +
+                   " Hold=" + esd.HoldDurationMs + "ms");
+        }
+
+        /// <summary>ToOptions 对非法值就地夹紧到安全范围（防手改 JSON 让检测逻辑跑飞）</summary>
+        private static void EsdToOptionsClamps()
+        {
+            var bad = new EsdConfig
+            {
+                RoiX = 1.5f,          // >1 → 夹到 1
+                RoiY = -0.5f,         // <0 → 夹到 0
+                RoiW = 0f,            // <0.01 → 夹到 0.01
+                RoiH = 2f,            // >1 → 夹到 1
+                MarginPx = -10f,      // 负容差 → 夹到 0
+                HoldDurationMs = -500,
+                ReleaseGraceMs = -100,
+                WristConfidenceThreshold = 2f // >0.95 → 夹到 0.95
+            };
+
+            var opts = bad.ToOptions();
+
+            T.Eq(1f, opts.RoiX, "RoiX>1 夹紧到 1");
+            T.Eq(0f, opts.RoiY, "RoiY<0 夹紧到 0");
+            T.Eq(0.01f, opts.RoiW, "RoiW=0 夹紧到最小 0.01");
+            T.Eq(1f, opts.RoiH, "RoiH>1 夹紧到 1");
+            T.Eq(0f, opts.MarginPx, "负 MarginPx 夹紧到 0");
+            T.Eq(0.0, opts.HoldDurationMs, "负 Hold 夹紧到 0");
+            T.Eq(0.0, opts.ReleaseGraceMs, "负 Grace 夹紧到 0");
+            T.Eq(0.95f, opts.WristConfidenceThreshold, "置信度>0.95 夹紧到 0.95");
+
+            // 合法值应原样通过（夹紧逻辑不得误伤正常配置）
+            var good = new EsdConfig { RoiX = 0.4f, RoiY = 0.25f, RoiW = 0.2f, RoiH = 0.35f };
+            var gopts = good.ToOptions();
+            T.Eq(0.4f, gopts.RoiX, "合法 RoiX 原样保留");
+            T.Eq(0.35f, gopts.RoiH, "合法 RoiH 原样保留");
         }
     }
 }

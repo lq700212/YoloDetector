@@ -87,4 +87,11 @@
     </Reference>
   </ItemGroup>
 
+  <!-- 姿态端到端基准图（官方多人街景照）：复制到 bin 供 TestUtil.BinPath("assets",...) 就地读取 -->
+  <ItemGroup>
+    <Content Include="assets\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>
