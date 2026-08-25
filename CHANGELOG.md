@@ -39,6 +39,7 @@
 - 删除死配置：`YoloConfig.Enabled`（无代码消费）、`ApiConfig` 全套 HTTP 路径与签名密钥、连接账号密码/UserAgent、预览页面路径（安格华为纯 TCP 探测，均无消费者），三份品牌配置文件同步清理
 - 删除"测试视频流"按钮（HttpClient 不支持 rtsp 协议必然失败，功能与"连接相机"的 TCP 探测重复）
 - 删除 `DeviceStatus` 带宽死字段、`SafeInvokeAction` 冗余方法
+- 清理 `RtspFrameCapturer` 的 FFmpeg URL 拼参 hack（`?buffer_size=1024000` 双重连接尝试——对 TCP 传输无效且 URL 带查询串时会产生畸形地址），改为直接连接原始地址
 
 ### 验证
 

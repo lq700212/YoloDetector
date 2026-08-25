@@ -60,11 +60,10 @@ namespace YoloDetection
                 try
                 {
                     capture = new VideoCapture();
+                    // OpenCV 层内部缓冲设为 1 帧：只保留最新画面，降低延迟
                     capture.Set(VideoCaptureProperties.BufferSize, 1);
 
-                    // 先尝试带缓冲参数连接（部分 FFmpeg 后端可降低延迟），失败再退回原始地址
-                    if (!TryOpen(capture, rtspUrl + "?buffer_size=1024000") &&
-                        !TryOpen(capture, rtspUrl))
+                    if (!TryOpen(capture, rtspUrl))
                     {
                         capture.Dispose(); // 失败路径：必须释放，避免句柄/native内存泄漏
                         return false;
