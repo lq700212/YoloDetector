@@ -7,7 +7,7 @@
 - 📹 **RTSP 流接入**：OpenCV VideoCapture 逐帧捕获，单槽位缓冲自动丢帧防积压
 - 🎯 **YOLO 实时推理**：ONNX Runtime 加载模型，独立检测线程，UI 不卡顿
 - 🖼️ **双可视化方案**：Skia 红框（YoloBuiltin）/ OpenCV 绿框（OpenCV），配置文件一键切换；绘制后端跨平台（Windows/Linux 效果一致）
-- 🧩 **检测模块可整体迁移**：`Detection/` 为独立类库（net472 + netstandard2.0 双目标），托管依赖已内置仓库，离线编译、整目录复制即接入（见 `docs/MODULE.md`）
+- 🧩 **检测模块可整体迁移**：`Detection/` 为独立类库（net472 + netstandard2.0 双目标），托管与 native 依赖（Windows + Linux）全部内置仓库，离线编译、整目录复制即接入，Linux 上检测能力开箱可用（见 `docs/MODULE.md`）
 - 🔌 **多品牌相机解耦**：`ICameraApi` 接口 + 工厂模式，当前内置安格华（ANGEHUA）实现，海康/大华可按同一模式扩展
 - 🎛️ **设备管理**：连接测试（TCP 探测带超时）、设备状态轮询（防重入）、RTSP 拉流 / RTMP 推流开关
 - 📋 **分级日志**：文件日志（logs/log_日期.txt）+ UI 日志面板；YOLO 详细日志与每帧结果日志独立开关，默认关闭防刷屏
