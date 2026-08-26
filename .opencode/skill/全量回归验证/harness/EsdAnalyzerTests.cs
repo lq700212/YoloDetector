@@ -677,7 +677,6 @@ namespace YoloDetector.Tests
             public bool IsInitialized => InitializedFlag;
 
             public float PersonConfidenceThreshold { get; set; }
-            public float KeyPointConfidenceThreshold { get; set; }
 
             public void Initialize(string modelPath) { InitializedFlag = true; }
 

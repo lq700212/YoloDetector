@@ -177,6 +177,7 @@ namespace YoloDetector.Tests
             DetectorTests.RunAll();             // YoloV26Detector 真实模型推理契约
             PoseTests.RunAll();                 // 姿态检测器契约 + bus真图端到端(检人→姿态→手腕)
             EsdAnalyzerTests.RunAll();          // 静电接触状态机(虚拟时钟) + 管道ESD旁路集成
+            DoorMonitorTests.RunAll();          // 门状态监测(基准比对/亮度归一化/人遮挡/防抖)
             PipelineTests.RunAll();             // 检测管道线程协议（fake detector）
             FrameSourceTests.RunAll();          // 帧源生命周期（文件流/不可达地址）
             EndToEndTests.RunAll();             // 控制器端到端（真模型+视频文件流）

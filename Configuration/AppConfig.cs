@@ -23,6 +23,7 @@ namespace YoloDetector.Configuration
         private static CameraConfig _current;
         private static YoloConfig _yoloConfig;
         private static EsdConfig _esdConfig;
+        private static DoorConfig _doorConfig;
         private static readonly object _lockObj = new object();
 
         private static readonly string ConfigFilePath =
@@ -36,6 +37,9 @@ namespace YoloDetector.Configuration
 
         private static readonly string EsdConfigFilePath =
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Detection", "esdConfig.json");
+
+        private static readonly string DoorConfigFilePath =
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Detection", "doorConfig.json");
 
         static AppConfig()
         {
@@ -123,6 +127,32 @@ namespace YoloDetector.Configuration
             }
         }
 
+        /// <summary>门状态检测配置（首次访问时自动加载）</summary>
+        public static DoorConfig Door
+        {
+            get
+            {
+                if (_doorConfig == null)
+                {
+                    lock (_lockObj)
+                    {
+                        if (_doorConfig == null)
+                        {
+                            if (IsDesignMode())
+                            {
+                                _doorConfig = new DoorConfig();
+                            }
+                            else
+                            {
+                                LoadDoorConfig();
+                            }
+                        }
+                    }
+                }
+                return _doorConfig;
+            }
+        }
+
         /// <summary>加载完整配置（主配置 + 品牌配置 + YOLO 配置 + ESD 配置）</summary>
         public static void Load()
         {
@@ -146,10 +176,11 @@ namespace YoloDetector.Configuration
                 System.Diagnostics.Debug.WriteLine("主配置文件加载失败: " + ex.Message);
             }
 
-            // 步骤2：加载品牌配置；步骤3：加载YOLO配置；步骤4：加载ESD配置
+            // 步骤2：加载品牌配置；步骤3：加载YOLO配置；步骤4：加载ESD配置；步骤5：加载门检测配置
             LoadBrandConfig(activeBrand);
             LoadYoloConfig();
             LoadEsdConfig();
+            LoadDoorConfig();
         }
 
         /// <summary>加载指定品牌的配置文件（失败时回退到代码默认值）</summary>
@@ -319,6 +350,86 @@ namespace YoloDetector.Configuration
                 _esdConfig = new EsdConfig();
             }
             System.Diagnostics.Debug.WriteLine("使用ESD默认配置");
+        }
+
+        /// <summary>加载门状态检测配置文件（失败时回退到代码默认值）</summary>
+        public static void LoadDoorConfig()
+        {
+            try
+            {
+                if (File.Exists(DoorConfigFilePath))
+                {
+                    string json = File.ReadAllText(DoorConfigFilePath);
+                    var config = JsonConvert.DeserializeObject<DoorConfig>(json);
+                    if (config != null)
+                    {
+                        lock (_lockObj)
+                        {
+                            _doorConfig = config;
+                        }
+                        System.Diagnostics.Debug.WriteLine("门检测配置加载成功");
+                        return;
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("门检测配置文件不存在: " + DoorConfigFilePath);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("门检测配置文件加载失败: " + ex.Message);
+            }
+
+            lock (_lockObj)
+            {
+                _doorConfig = new DoorConfig();
+            }
+            System.Diagnostics.Debug.WriteLine("使用门检测默认配置");
+        }
+
+        /// <summary>
+        /// 把拖拽标定出的门区域 ROI 写回 Detection/doorConfig.json 并同步内存单例。
+        /// 双通道更新语义与 SaveEsdRoi 完全一致（内存热更新 + JSON 局部更新保注释）。
+        /// 注意：门区域变化后基准图不再匹配，调用方应提示用户重新采集关门基准。
+        /// </summary>
+        public static void SaveDoorRoi(float roiX, float roiY, float roiW, float roiH)
+        {
+            DoorConfig config;
+            lock (_lockObj)
+            {
+                config = _doorConfig;
+            }
+
+            if (config == null)
+            {
+                return;
+            }
+
+            config.ApplyNormalizedRoi(roiX, roiY, roiW, roiH);
+
+            try
+            {
+                string updated = null;
+                if (File.Exists(DoorConfigFilePath))
+                {
+                    string original = File.ReadAllText(DoorConfigFilePath);
+                    updated = DoorConfig.UpdateRoiJson(
+                        original, config.RoiX, config.RoiY, config.RoiW, config.RoiH);
+                }
+
+                if (updated == null)
+                {
+                    updated = JsonConvert.SerializeObject(config, Formatting.Indented);
+                    System.Diagnostics.Debug.WriteLine("门检测配置文件缺失或损坏，已用整对象序列化重建");
+                }
+
+                File.WriteAllText(DoorConfigFilePath, updated, new UTF8Encoding(false));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("门区域 ROI 配置写回失败: " + ex.Message);
+            }
         }
 
         private static void EnsureBrandConfigsDirectoryExists()

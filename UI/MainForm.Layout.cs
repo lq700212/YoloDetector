@@ -88,6 +88,8 @@ namespace YoloDetector.UI
             this.btnStopPreview = new UIButton();
             this.btnStartRtsp = new UIButton();
             this.btnStartRtmp = new UIButton();
+            this.btnCalibTarget = new UIButton();
+            this.btnDoorBaseline = new UIButton();
             this.cardInfo = new UIPanel();
             this.lblInfo = new UILabel();
             this.txtStatusInfo = new System.Windows.Forms.TextBox();
@@ -250,8 +252,10 @@ namespace YoloDetector.UI
             this.cardControl.Controls.Add(this.btnStopPreview);
             this.cardControl.Controls.Add(this.btnStartRtsp);
             this.cardControl.Controls.Add(this.btnStartRtmp);
+            this.cardControl.Controls.Add(this.btnCalibTarget);
+            this.cardControl.Controls.Add(this.btnDoorBaseline);
             this.cardControl.Location = new System.Drawing.Point(12, 282);
-            this.cardControl.Size = new System.Drawing.Size(306, 196);
+            this.cardControl.Size = new System.Drawing.Size(306, 238);
             //
             // lblControl
             //
@@ -317,12 +321,35 @@ namespace YoloDetector.UI
             this.btnStartRtmp.Text = "开启推流";
             this.btnStartRtmp.Click += new System.EventHandler(this.btnStartRtmp_Click);
             //
+            // btnCalibTarget —— 标定目标切换（预览画面拖拽框选的归属）：
+            //   静电杆区域(ESD触摸检测) ↔ 门区域(门状态检测)
+            //
+            StyleButton(this.btnCalibTarget, PrimaryColor);
+            this.btnCalibTarget.Font = new Font("微软雅黑", 9.5F);
+            this.btnCalibTarget.Location = new System.Drawing.Point(16, 194);
+            this.btnCalibTarget.Name = "btnCalibTarget";
+            this.btnCalibTarget.Size = new System.Drawing.Size(136, 32);
+            this.btnCalibTarget.TabIndex = 5;
+            this.btnCalibTarget.Text = "标定:静电杆";
+            this.btnCalibTarget.Click += new System.EventHandler(this.btnCalibTarget_Click);
+            //
+            // btnDoorBaseline —— 重设关门基准（门关着时点击；门区域标定后也需重采）
+            //
+            StyleButton(this.btnDoorBaseline, SuccessGreen);
+            this.btnDoorBaseline.Font = new Font("微软雅黑", 9.5F);
+            this.btnDoorBaseline.Location = new System.Drawing.Point(160, 194);
+            this.btnDoorBaseline.Name = "btnDoorBaseline";
+            this.btnDoorBaseline.Size = new System.Drawing.Size(136, 32);
+            this.btnDoorBaseline.TabIndex = 6;
+            this.btnDoorBaseline.Text = "重设门基准";
+            this.btnDoorBaseline.Click += new System.EventHandler(this.btnDoorBaseline_Click);
+            //
             // cardInfo —— 卡片④：设备状态信息（占满剩余高度）
             //
             StyleCard(this.cardInfo, "cardInfo");
             this.cardInfo.Controls.Add(this.lblInfo);
             this.cardInfo.Controls.Add(this.txtStatusInfo);
-            this.cardInfo.Location = new System.Drawing.Point(12, 488);
+            this.cardInfo.Location = new System.Drawing.Point(12, 530);
             this.cardInfo.Size = new System.Drawing.Size(306, 246);
             this.cardInfo.Anchor = System.Windows.Forms.AnchorStyles.Top |
                 System.Windows.Forms.AnchorStyles.Bottom |
@@ -557,6 +584,8 @@ namespace YoloDetector.UI
         private UIButton btnStopPreview;
         private UIButton btnStartRtsp;
         private UIButton btnStartRtmp;
+        private UIButton btnCalibTarget;
+        private UIButton btnDoorBaseline;
         private UIPanel cardInfo;
         private UILabel lblInfo;
         private System.Windows.Forms.TextBox txtStatusInfo;

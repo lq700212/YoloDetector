@@ -45,6 +45,12 @@ namespace YoloDetector.App
         /// 由宿主从 Detection/esdConfig.json 转换而来。
         /// </summary>
         public YoloDetection.EsdAnalysisOptions EsdOptions { get; set; }
+
+        /// <summary>
+        /// 门状态监测参数（null 时禁用门监测旁路）。
+        /// 由宿主从 Detection/doorConfig.json 转换而来。
+        /// </summary>
+        public YoloDetection.DoorMonitorOptions DoorOptions { get; set; }
     }
 
     /// <summary>
@@ -75,6 +81,21 @@ namespace YoloDetector.App
         /// 仅在状态变化帧触发一次；后台线程触发，订阅方自行调度。
         /// </summary>
         public event EventHandler<YoloDetection.EsdContactChangedEventArgs> EsdContactChanged;
+
+        /// <summary>
+        /// 门状态翻转事件：true=门被打开，false=门已关闭。
+        /// 仅在状态变化帧触发一次（分析器内部防抖）；后台线程触发，订阅方自行调度。
+        /// </summary>
+        public event EventHandler<bool> DoorStateChanged;
+
+        private void HandlePipelineDoorChanged(object sender, bool isOpen)
+        {
+            var handler = DoorStateChanged;
+            if (handler != null)
+            {
+                handler(this, isOpen);
+            }
+        }
 
         public VideoDetectionController(
             Action<System.Drawing.Bitmap> previewSink,
@@ -157,6 +178,25 @@ namespace YoloDetector.App
                 pipeline.EsdContactChanged += HandlePipelineEsdChanged;
             }
 
+            // 3.2 门状态监测旁路装配（与 ESD 同一模式：null 禁用，故障只降级）
+            if (options.DoorOptions != null)
+            {
+                try
+                {
+                    pipeline.DoorAnalyzer = new YoloDetection.DoorMonitorAnalyzer(options.DoorOptions);
+                    if (options.DoorOptions.DrawOverlay)
+                    {
+                        pipeline.DoorOverlay = new YoloDetection.DoorOverlayRenderer();
+                    }
+                    pipeline.DoorStateChanged += HandlePipelineDoorChanged;
+                }
+                catch (Exception ex)
+                {
+                    YoloDetection.LogManager.GeneralLog(
+                        $"[Door] 门状态监测启用失败，已降级为无门监测: {ex.Message}");
+                }
+            }
+
             pipeline.DetectionsUpdated += OnDetectionsUpdated;
             pipeline.FrameProcessed += OnFrameProcessed;
             pipeline.Start();
@@ -188,6 +228,8 @@ namespace YoloDetector.App
                 _frameSource = null;
             }
 
+            DisposeLastFrameForDoor();
+
             if (_pipeline != null)
             {
                 _pipeline.DetectionsUpdated -= OnDetectionsUpdated;
@@ -197,6 +239,7 @@ namespace YoloDetector.App
                 if (esdService != null)
                 {
                     esdService.EsdContactChanged -= HandlePipelineEsdChanged;
+                    esdService.DoorStateChanged -= HandlePipelineDoorChanged;
                 }
 
                 _pipeline.Dispose();
@@ -287,7 +330,6 @@ namespace YoloDetector.App
                 _poseDetector = poseDetector;
             }
 
-            _poseDetector.KeyPointConfidenceThreshold = options.EsdOptions.WristConfidenceThreshold;
         }
 
         /// <summary>帧源出帧 → 提交管道检测。Mat 所有权在本方法内终结。</summary>
@@ -298,12 +340,42 @@ namespace YoloDetector.App
                 var pipeline = _pipeline;
                 if (pipeline != null && pipeline.IsRunning)
                 {
+                    // 门基准采集缓存：每 10 帧克隆一份最新帧（约 2ms，低频无感），
+                    // 供 UI"重设门基准"按钮使用（点击时原帧早已释放，必须有缓存）
+                    _doorFrameCounter++;
+                    if (_doorFrameCounter >= 10)
+                    {
+                        _doorFrameCounter = 0;
+                        UpdateLastFrameForDoor(frame);
+                    }
+
                     pipeline.ProcessFrame(frame); // 管道内部克隆，此处原帧随后释放
                 }
             }
             finally
             {
                 frame.Dispose();
+            }
+        }
+
+        // 门基准采集帧缓存计数（仅帧源线程读写，单写者无需同步）
+        private int _doorFrameCounter;
+
+        /// <summary>克隆最新帧到门基准缓存（仅当门监测链路存在时；否则清掉缓存省内存）。</summary>
+        private void UpdateLastFrameForDoor(OpenCvSharp.Mat frame)
+        {
+            var esdService = _pipeline as YoloDetection.YoloDetectionService;
+            if (esdService == null || esdService.DoorAnalyzer == null)
+            {
+                DisposeLastFrameForDoor();
+                return;
+            }
+
+            OpenCvSharp.Mat old = _lastFrameForDoor;
+            _lastFrameForDoor = frame.Clone();
+            if (old != null)
+            {
+                old.Dispose();
             }
         }
 
@@ -371,6 +443,62 @@ namespace YoloDetector.App
 
             options.ApplyNormalizedRoi(roiX, roiY, roiW, roiH);
             return true;
+        }
+
+        /// <summary>
+        /// 运行期热更新门区域 ROI（UI 拖拽标定调用）：语义与 TryUpdateEsdRoi 相同。
+        /// 返回 false 表示当前没有可更新的门监测链路——调用方仍应保存配置。
+        /// 注意：门区域 ROI 变化后**基准图尺寸/内容不再匹配**，调用方应在标定后
+        /// 提示用户重新采集关门基准（门关着时点"重设门基准"）。
+        /// </summary>
+        public bool TryUpdateDoorRoi(float roiX, float roiY, float roiW, float roiH)
+        {
+            var esdService = _pipeline as YoloDetection.YoloDetectionService;
+            YoloDetection.DoorMonitorOptions options =
+                (esdService != null && esdService.DoorAnalyzer != null)
+                    ? esdService.DoorAnalyzer.Options
+                    : null;
+
+            if (options == null)
+            {
+                return false;
+            }
+
+            options.ApplyNormalizedRoi(roiX, roiY, roiW, roiH);
+            return true;
+        }
+
+        /// <summary>
+        /// 重设关门基准：用**最近一帧**预览画面采集（调用时机：门关着的时候）。
+        /// 基准内存生效并自动落盘 PNG，重启后仍有效。
+        /// 返回 false 表示当前没有运行中的门监测链路（预览未启动/未启用/降级）。
+        /// </summary>
+        public bool SetDoorBaselineFromLatestFrame()
+        {
+            var esdService = _pipeline as YoloDetection.YoloDetectionService;
+            YoloDetection.DoorMonitorAnalyzer analyzer = esdService != null ? esdService.DoorAnalyzer : null;
+
+            OpenCvSharp.Mat latest = _lastFrameForDoor;
+            if (analyzer == null || latest == null || latest.Empty())
+            {
+                return false;
+            }
+
+            analyzer.SetBaselineFromFrame(latest);
+            return true;
+        }
+
+        // 门基准采集用的最近一帧（OnFrameReady 里更新；与主管道克隆并行，独立持有）
+        private OpenCvSharp.Mat _lastFrameForDoor;
+
+        /// <summary>清理门基准采集用的最近帧缓存。</summary>
+        private void DisposeLastFrameForDoor()
+        {
+            if (_lastFrameForDoor != null)
+            {
+                _lastFrameForDoor.Dispose();
+                _lastFrameForDoor = null;
+            }
         }
     }
 }

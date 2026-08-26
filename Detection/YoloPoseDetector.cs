@@ -61,8 +61,6 @@ namespace YoloDetection
 
         public float PersonConfidenceThreshold { get; set; } = 0.30f;
 
-        public float KeyPointConfidenceThreshold { get; set; } = 0.35f;
-
         public void Initialize(string modelPath)
         {
             // 与 YoloV26Detector 相同的防御顺序：先抛语义准确的 ObjectDisposedException

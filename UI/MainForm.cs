@@ -61,11 +61,27 @@ namespace YoloDetector.UI
             };
             _statusTimer.Tick += StatusTimer_Tick;
 
-            // 静电杆 ROI 拖拽标定：控件内部已封装鼠标接线/虚线框绘制/坐标换算，
-            // 这里只订阅结果（归一化 ROI → 热更新 + 落盘）。
+            // ROI 拖拽标定：控件内部已封装鼠标接线/虚线框绘制/坐标换算，
+            // 这里只订阅结果（归一化 ROI → 按当前标定目标分发：静电杆/门区域）。
             // 控件与窗体同生命周期，事件无需成对退订（控件销毁即随链断开）
-            videoPictureBox.RoiSelected += roi => ApplyEsdRoiSelection(roi.X, roi.Y, roi.W, roi.H);
+            videoPictureBox.RoiSelected += roi =>
+            {
+                if (_calibTarget == CalibTarget.Door)
+                {
+                    ApplyDoorRoiSelection(roi.X, roi.Y, roi.W, roi.H);
+                }
+                else
+                {
+                    ApplyEsdRoiSelection(roi.X, roi.Y, roi.W, roi.H);
+                }
+            };
         }
+
+        /// <summary>预览画面拖拽框选的标定目标（决定 RoiSelected 结果分发给哪个检测功能）</summary>
+        private CalibTarget _calibTarget = CalibTarget.EsdPole;
+
+        /// <summary>标定目标枚举</summary>
+        private enum CalibTarget { EsdPole, Door }
 
         // ============================================================
         // 日志
@@ -392,7 +408,8 @@ namespace YoloDetector.UI
                     PoseModelPath = AppConfig.Esd.Enabled
                         ? ExpandModelPath(AppConfig.Esd.PoseModelPath)
                         : null,
-                    EsdOptions = AppConfig.Esd.Enabled ? AppConfig.Esd.ToOptions() : null
+                    EsdOptions = AppConfig.Esd.Enabled ? AppConfig.Esd.ToOptions() : null,
+                    DoorOptions = AppConfig.Door.Enabled ? AppConfig.Door.ToOptions() : null
                 };
 
                 _videoController.Start(options);
@@ -443,11 +460,23 @@ namespace YoloDetector.UI
 
             // 静电触摸状态翻转 → 日志面板提示（仅在事件帧触发一次，不会刷屏）。
             // 回调在检测线程触发，经 SafeBeginInvoke 调度回 UI 线程。
+            // 结束事件带"本次持续时长"（分析器在清零前记录的最终值）：
+            // Hold=400ms 下拍一下(0.3~0.5秒)与长摸(数秒)都触发同一事件，
+            // 现场靠这个时长区分动作类型、审计误判。
             _videoController.EsdContactChanged += (s, e) =>
             {
                 string msg = e.InContact
                     ? $"⚡人员#{e.TrackId} 正在触摸静电杆 (持续{e.ContactElapsedMs / 1000.0:F1}秒)"
-                    : $"人员#{e.TrackId} 结束触摸静电杆";
+                    : $"人员#{e.TrackId} 结束触摸静电杆 (本次持续{e.ContactElapsedMs / 1000.0:F1}秒)";
+                SafeBeginInvoke(() => AddLog(msg));
+            };
+
+            // 门状态翻转 → 日志提示（分析器内部已防抖，仅翻转帧触发一次）
+            _videoController.DoorStateChanged += (s, isOpen) =>
+            {
+                string msg = isOpen
+                    ? "⚠操作间门被打开（请确认是否合规操作）"
+                    : "✓操作间门已关闭";
                 SafeBeginInvoke(() => AddLog(msg));
             };
         }
@@ -531,6 +560,61 @@ namespace YoloDetector.UI
                     "静电杆区域已标定: X={0:F3} Y={1:F3} W={2:F3} H={3:F3}（已实时生效并保存到 esdConfig.json）",
                     roiX, roiY, roiW, roiH)
                 : "静电杆区域已保存到 esdConfig.json（当前未启用静电触摸检测，下次启用预览时生效）");
+        }
+
+        /// <summary>
+        /// 应用门区域标定结果：热更新运行链路 + 配置落盘（语义与静电杆标定一致）。
+        /// 额外提示：门区域变了，关门基准图不再匹配——需要门关着时重新采集基准。
+        /// </summary>
+        private void ApplyDoorRoiSelection(float roiX, float roiY, float roiW, float roiH)
+        {
+            bool liveApplied = _videoController != null && _videoController.TryUpdateDoorRoi(roiX, roiY, roiW, roiH);
+
+            AppConfig.SaveDoorRoi(roiX, roiY, roiW, roiH);
+
+            AddLog(liveApplied
+                ? string.Format(
+                    "门区域已标定: X={0:F3} Y={1:F3} W={2:F3} H={3:F3}（已实时生效并保存到 doorConfig.json）\n⚠门区域已变化，请在门关着时点击【重设门基准】重新采集",
+                    roiX, roiY, roiW, roiH)
+                : "门区域已保存到 doorConfig.json（当前未启用预览，下次启用时生效）\n⚠请在门关着时点击【重设门基准】重新采集");
+        }
+
+        /// <summary>
+        /// 切换拖拽框选的标定目标：静电杆区域 ↔ 门区域。
+        /// 按钮文本同步更新，让现场明确当前拖拽框选的是哪个检测区域。
+        /// </summary>
+        private void btnCalibTarget_Click(object sender, EventArgs e)
+        {
+            if (_calibTarget == CalibTarget.EsdPole)
+            {
+                _calibTarget = CalibTarget.Door;
+                btnCalibTarget.Text = "标定:门区域";
+                AddLog("标定目标已切换为【门区域】——在预览画面上拖拽框选门的位置");
+            }
+            else
+            {
+                _calibTarget = CalibTarget.EsdPole;
+                btnCalibTarget.Text = "标定:静电杆";
+                AddLog("标定目标已切换为【静电杆区域】——在预览画面上拖拽框选静电杆位置");
+            }
+        }
+
+        /// <summary>
+        /// 重设关门基准：用最近一帧预览画面采集（必须门关着的时候点）。
+        /// 基准内存生效并落盘 PNG，重启不丢。
+        /// </summary>
+        private void btnDoorBaseline_Click(object sender, EventArgs e)
+        {
+            if (_videoController == null || !_videoController.IsRunning)
+            {
+                AddLog("重设门基准失败：请先启动预览");
+                return;
+            }
+
+            bool ok = _videoController.SetDoorBaselineFromLatestFrame();
+            AddLog(ok
+                ? "✓关门基准已重设（当前门区域画面已记为'关闭'状态）"
+                : "重设门基准失败：门状态监测未启用或尚未产出画面");
         }
 
         /// <summary>检测结果回调：保存快照并按需输出统计日志</summary>

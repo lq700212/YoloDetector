@@ -77,12 +77,6 @@ namespace YoloDetection
         /// <summary>当前生效的分析参数（只读暴露，便于可视化器取 ROI 绘制）</summary>
         public EsdAnalysisOptions Options { get { return _options; } }
 
-        /// <summary>清空全部跟踪状态（停止预览/切换流源时调用，避免旧画面残留计时）。</summary>
-        public void Reset()
-        {
-            _tracks.Clear();
-        }
-
         /// <summary>
         /// 处理一帧：更新跟踪与接触状态机，返回本帧快照（新实例，外部可自由持有）。
         /// </summary>
@@ -440,7 +434,7 @@ namespace YoloDetection
         /// <summary>构建本帧不可变快照（含暂时丢失但仍在跟踪中的人，UI 才能持续显示其状态）。</summary>
         private EsdFrameSnapshot BuildSnapshot(long nowMs)
         {
-            var snapshot = new EsdFrameSnapshot { TimestampMs = nowMs };
+            var snapshot = new EsdFrameSnapshot();
 
             foreach (var t in _tracks)
             {

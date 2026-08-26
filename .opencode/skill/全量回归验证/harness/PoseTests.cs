@@ -63,7 +63,6 @@ namespace YoloDetector.Tests
                 T.True(d.IsInitialized, "现场 yolo11n-pose.onnx 应加载成功");
                 // COCO 姿态模型的默认阈值约定（改动会影响业务判定松紧）
                 T.Eq(0.30f, d.PersonConfidenceThreshold, "人体框置信度默认值应为 0.30");
-                T.Eq(0.35f, d.KeyPointConfidenceThreshold, "关键点置信度默认值应为 0.35");
                 T.Eq(8, d.MaxPersonsPerFrame, "单帧推理人数上限默认应为 8");
             }
         }

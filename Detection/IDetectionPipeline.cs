@@ -38,11 +38,5 @@ namespace YoloDetection
 
         /// <summary>获取最近一次检测结果（返回副本）</summary>
         List<DetectionResult> GetLatestDetections();
-
-        /// <summary>运行时热切换检测器（若正在运行会先停止再自动重启）</summary>
-        void SetDetector(IYoloDetector detector);
-
-        /// <summary>运行时热切换可视化器</summary>
-        void SetVisualizer(IDetectionVisualizer visualizer);
     }
 }

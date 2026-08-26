@@ -24,12 +24,6 @@ namespace YoloDetection
         float PersonConfidenceThreshold { get; set; }
 
         /// <summary>
-        /// 关键点可见性置信度阈值（0-1）：
-        /// 低于此值的关键点仍会返回（坐标保留），但业务方应结合该值判断是否采信。
-        /// </summary>
-        float KeyPointConfidenceThreshold { get; set; }
-
-        /// <summary>
         /// 加载 ONNX 姿态模型（如 yolo11n-pose.onnx）。失败时抛异常。
         /// </summary>
         void Initialize(string modelPath);

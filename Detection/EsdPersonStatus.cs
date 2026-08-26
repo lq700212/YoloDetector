@@ -54,8 +54,5 @@ namespace YoloDetection
 
         /// <summary>当前处于触摸状态的人数（= InContact 计数，方便直接取用）</summary>
         public int ContactCount { get; set; }
-
-        /// <summary>快照时间戳（Stopwatch 毫秒，仅用于相对比较/日志展示）</summary>
-        public long TimestampMs { get; set; }
     }
 }

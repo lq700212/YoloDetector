@@ -1,6 +1,5 @@
 using System;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using YoloDetection;
 
 namespace YoloDetector.Configuration
@@ -65,12 +64,16 @@ namespace YoloDetector.Configuration
         // ---------- 触摸判定时序 ----------
 
         /// <summary>
-        /// 持续命中时长阈值（毫秒）：达到才算"正在触摸"，过滤路人扫过。
-        /// v2.9 默认 1500→1000：现场反馈 1.5 秒体感偏钝；1 秒响应更跟手，
-        /// 仍能过滤一晃而过的手（扫过 ROI 通常不足 0.5 秒）。误报多可调回 1500。
+        /// 持续命中时长阈值（毫秒）：达到才算"正在触摸"。
+        /// v2.9 默认 1000→400：实际业务是检测工人**拍/摸**静电杆——拍击的接触
+        /// 时长通常只有 150~400ms，1 秒阈值会完全漏掉。400ms ≈ 检测循环 8fps 下
+        /// 连续 3 帧命中（防单帧抖动的下限），同时覆盖拍击时长上限。
+        /// 误报权衡：手挥过 ROI（200~500ms）也可能触发，但 ROI 仅杆附近小块区域、
+        /// 工位固定镜头下扫过概率低，且日志带持续时长可事后审计；误报多就调回
+        /// 600~1000，漏拍就降到 250（低于 250 接近单帧判定，抖动误报会明显增多）。
         /// </summary>
         [JsonProperty("HoldDurationMs")]
-        public double HoldDurationMs { get; set; } = 1000;
+        public double HoldDurationMs { get; set; } = 400;
 
         /// <summary>释放宽限（毫秒）：短暂遮挡/抖动不断开已建立的接触状态</summary>
         [JsonProperty("ReleaseGraceMs")]
@@ -137,32 +140,11 @@ namespace YoloDetector.Configuration
         ///
         /// 返回更新后的 JSON 文本（缩进格式化）；输入为空或不是合法 JSON 时返回 null，
         /// 由调用方决定回退策略。四个值内部夹紧，与 ApplyNormalizedRoi 双保险。
+        /// 实现在公共类 RoiJsonUpdater（与 DoorConfig.UpdateRoiJson 共用同一逻辑）。
         /// </summary>
         public static string UpdateRoiJson(string originalJson, float roiX, float roiY, float roiW, float roiH)
         {
-            if (string.IsNullOrWhiteSpace(originalJson))
-            {
-                return null;
-            }
-
-            JObject root;
-            try
-            {
-                root = JObject.Parse(originalJson);
-            }
-            catch (JsonReaderException)
-            {
-                return null; // 文件被手改坏：交由调用方走整对象重建路径
-            }
-
-            // JObject 保持插入顺序：已存在的键原地改值（顺序不变），
-            // 缺失的键追加到末尾（手工删过字段的文件也能自动补全）
-            root["RoiX"] = new JValue(Clamp(roiX, 0f, 1f));
-            root["RoiY"] = new JValue(Clamp(roiY, 0f, 1f));
-            root["RoiW"] = new JValue(Clamp(roiW, 0.01f, 1f));
-            root["RoiH"] = new JValue(Clamp(roiH, 0.01f, 1f));
-
-            return root.ToString(Newtonsoft.Json.Formatting.Indented);
+            return RoiJsonUpdater.Update(originalJson, roiX, roiY, roiW, roiH);
         }
 
         private static float Clamp(float v, float min, float max)

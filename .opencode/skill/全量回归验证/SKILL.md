@@ -1,6 +1,6 @@
 ﻿---
 name: "全量回归验证"
-description: "YoloDetector 一键全量回归验证：构建主项目、运行 121 个进程内回归用例（配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/YOLO检测器/姿态检测器/静电接触分析器与叠加渲染/检测管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造）+ GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
+description: "YoloDetector 一键全量回归验证：构建主项目、运行 127 个进程内回归用例（配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/YOLO检测器/姿态检测器/静电接触分析器与叠加渲染/门状态监测/检测管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造）+ GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
 ---
 
 # 全量回归验证
@@ -23,7 +23,9 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 | Detection/Visualizers.cs、YoloBuiltinVisualizer.cs | VisualizerTests（不污染原帧/null 契约/工厂） |
 | Detection/YoloV26Detector.cs | DetectorTests（真实模型推理契约） |
 | Detection/YoloPoseDetector.cs、PoseResult.cs | PoseTests（真实模型推理契约 + bus真图端到端：检人→姿态→手腕落位） |
-| Detection/EsdContactAnalyzer.cs、EsdAnalysisOptions.cs、EsdRoiRect.cs、EsdPersonStatus.cs | EsdAnalyzerTests（虚拟时钟驱动状态机全分支：Hold认定/宽限保持/超时退出/轨迹遗忘/快照隔离/Options热更新ROI夹紧且分析器立即可见/双手合拢兜底四分支：交叠命中·分开不走兜底·中点出ROI·肘点不可信） |
+| Detection/EsdContactAnalyzer.cs、EsdAnalysisOptions.cs、EsdRoiRect.cs、EsdPersonStatus.cs | EsdAnalyzerTests（虚拟时钟驱动状态机全分支：Hold认定/宽限保持/超时退出/轨迹遗忘/快照隔离/Options热更新ROI夹紧且分析器立即可见/双手合拢兜底四分支：交叠命中·分开不走兜底·中点出ROI·肘点不可信/指尖外推四分支：指向命中·背离不误判·肘低置信·腕低置信） |
+
+| Detection/DoorMonitorAnalyzer.cs、DoorMonitorOptions.cs、IDoorOverlayRenderer.cs、DoorOverlayRenderer.cs | DoorMonitorTests（基准采集落盘与重启重载/画面一致与亮度漂移不误报/结构变化防抖翻转+事件/人遮挡跳过判定/短暂变化不翻转/DoorConfig默认值与ToOptions夹紧与ROI JSON） |
 | Detection/EsdOverlayRenderer.cs、IEsdOverlayRenderer.cs | EsdAnalyzerTests 中 Overlay 契约用例（null参数安全/原地修改帧/空快照仍画ROI/DrawNoContactBoxes开关像素级断言：默认隐藏未接触灰框且接触绿框不受影响/开关打开恢复灰框） |
 | Detection/YoloDetectionService.cs 的 ESD 旁路 + EsdOverlayRenderer.cs | EsdAnalyzerTests 尾部管道集成用例（事件联动/姿态异常不拖垮主检测/未配置零事件） |
 | Detection/ZoomMapping.cs、RoiSelectionState.cs（随类库迁移） | RoiSelectionTests（Zoom显示矩形居中计算/控件点映射归一化与黑边夹紧/拖拽端到端换算归一化ROI含贴边回收/框选状态机正常流·误触忽略·反向规范化·未按下忽略） |
@@ -64,6 +66,7 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
     ├── assets/bus.jpg            官方多人街景基准图（姿态端到端用，构建时复制到 bin\assets）
     ├── PoseTests.cs              YoloPoseDetector 契约 + bus真图端到端 + FakePoseDetector
     ├── EsdAnalyzerTests.cs       静电接触状态机(虚拟时钟) + Options热更新ROI + 管道ESD旁路集成
+    ├── DoorMonitorTests.cs       门状态监测(基准比对/亮度归一化/人遮挡/防抖/配置夹紧)
     ├── PipelineTests.cs          检测管道线程协议（快照隔离/异常零逃逸/停止协议）
     ├── FrameSourceTests.cs       帧源生命周期（本地视频文件当流源）
     ├── EndToEndTests.cs          控制器端到端（视频文件流+真模型全链路）

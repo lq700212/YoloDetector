@@ -112,6 +112,25 @@ namespace YoloDetection
         /// </summary>
         public event EventHandler<EsdContactChangedEventArgs> EsdContactChanged;
 
+        // ==================== 门状态监测旁路（可选） ====================
+        // 与 ESD 旁路同一模式：分析器+渲染器配齐才启用；整体 try/catch，
+        // 任何故障只记日志，绝不影响人员检测主链路。
+
+        /// <summary>门状态监测分析器（null = 禁用门监测旁路）</summary>
+        public DoorMonitorAnalyzer DoorAnalyzer { get; set; }
+
+        /// <summary>门状态叠加渲染器（null = 只算不画）</summary>
+        public IDoorOverlayRenderer DoorOverlay { get; set; }
+
+        /// <summary>
+        /// 门状态翻转事件：true=门被打开，false=门已关闭。
+        /// 仅在状态翻转帧触发一次（分析器内部有防抖）。
+        /// </summary>
+        public event EventHandler<bool> DoorStateChanged;
+
+        /// <summary>每帧门监测快照更新事件（含差异值/遮挡标志；仅在门监测启用时触发）</summary>
+        public event EventHandler<DoorFrameSnapshot> DoorStatusUpdated;
+
         /// <param name="detector">YOLO 检测器实例（必须已完成 Initialize）</param>
         public YoloDetectionService(IYoloDetector detector)
             : this(detector, new OpenCVVisualizer())
@@ -234,41 +253,6 @@ namespace YoloDetection
             }
         }
 
-        /// <summary>
-        /// 运行时热切换检测器。
-        /// 说明：本方法假定由宿主单线程（UI线程）调用，不做跨线程互斥重入保护。
-        /// </summary>
-        public void SetDetector(IYoloDetector detector)
-        {
-            if (detector == null) throw new ArgumentNullException(nameof(detector));
-
-            bool wasRunning = IsRunning;
-            if (wasRunning)
-            {
-                Stop();
-            }
-
-            lock (_sync)
-            {
-                _detector = detector;
-            }
-
-            if (wasRunning && detector.IsInitialized)
-            {
-                Start();
-            }
-        }
-
-        public void SetVisualizer(IDetectionVisualizer visualizer)
-        {
-            if (visualizer == null) throw new ArgumentNullException(nameof(visualizer));
-
-            lock (_sync)
-            {
-                _visualizer = visualizer;
-            }
-        }
-
         // ==================== 工作线程 ====================
 
         private void DetectionLoop()
@@ -349,6 +333,10 @@ namespace YoloDetection
             //    ESD 是附加能力，任何故障只记日志，绝不拖垮人员检测主链路。
             RunEsdAnalysisIfEnabled(frame, detections, width, height);
 
+            // 3.1 门状态监测旁路（可选）：基准比对 → 门开/关状态机。
+            //     人员框一并传入用于排除"人走过遮挡门区域"。
+            RunDoorMonitorIfEnabled(frame, detections, width, height);
+
             // 4. 发布结果快照（外部拿到的是独立副本，与内部状态完全隔离：
             //    _lastDetections 与事件列表必须是不同实例，否则外部修改事件参数会污染内部状态）
             var snapshot = new List<DetectionResult>(detections);
@@ -385,6 +373,9 @@ namespace YoloDetection
 
             // 6. ESD 叠加层：在可视化结果之上原地绘制 ROI/状态标签（不改所有权）
             DrawEsdOverlay(outputFrame);
+
+            // 6.1 门状态叠加层：门区域框 + DOOR OPEN/CLOSED 标签
+            DrawDoorOverlay(outputFrame);
 
             var frameHandler = FrameProcessed;
             if (frameHandler != null)
@@ -447,6 +438,70 @@ namespace YoloDetection
             if (handler != null)
             {
                 handler(this, new EsdContactChangedEventArgs(trackId, inContact, elapsedMs));
+            }
+        }
+
+        /// <summary>
+        /// 执行门状态监测旁路（仅检测线程调用）。
+        /// 人员框一并传入：门区域被人遮挡时跳过判定（人挡门 ≠ 门开）。
+        /// StateChanged 与 ESD 的 ContactChanged 同一接线模式：分析器事件
+        /// 经本类转发为 DoorStateChanged（订阅/退订成对，防重复挂接）。
+        /// </summary>
+        private void RunDoorMonitorIfEnabled(Mat frame, List<DetectionResult> detections, int width, int height)
+        {
+            DoorMonitorAnalyzer analyzer = DoorAnalyzer;
+            if (analyzer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                analyzer.StateChanged -= OnDoorStateChanged;
+                analyzer.StateChanged += OnDoorStateChanged;
+
+                DoorFrameSnapshot snapshot = analyzer.Update(frame, detections, EsdContactAnalyzer.NowMs());
+
+                var statusHandler = DoorStatusUpdated;
+                if (statusHandler != null)
+                {
+                    statusHandler(this, snapshot);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.GeneralLog($"[Door] 门状态分析异常(已跳过本帧): {ex.Message}");
+            }
+        }
+
+        private void OnDoorStateChanged(bool isOpen)
+        {
+            var handler = DoorStateChanged;
+            if (handler != null)
+            {
+                handler(this, isOpen);
+            }
+        }
+
+        /// <summary>把门状态画到输出帧上（原地绘制；未启用则跳过）。状态直接取分析器当前结论。</summary>
+        private void DrawDoorOverlay(Mat outputFrame)
+        {
+            IDoorOverlayRenderer overlay = DoorOverlay;
+            DoorMonitorAnalyzer analyzer = DoorAnalyzer;
+            if (overlay == null || analyzer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                overlay.Draw(outputFrame,
+                    new DoorFrameSnapshot { IsOpen = analyzer.IsOpen, HasBaseline = analyzer.HasBaseline },
+                    analyzer.Options);
+            }
+            catch (Exception ex)
+            {
+                LogManager.GeneralLog($"[Door] 叠加绘制异常: {ex.Message}");
             }
         }
 

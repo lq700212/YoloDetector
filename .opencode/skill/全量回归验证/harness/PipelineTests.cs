@@ -28,7 +28,7 @@ namespace YoloDetector.Tests
             T.Case("管道-停止后提交帧被忽略", ProcessAfterStop);
             T.Case("管道-单槽位缓冲只保留最新帧", SingleSlotLatestWins);
             T.Case("管道-GetLatestDetections返回副本", LatestIsCopy);
-            T.Case("管道-热切换可视化器生效", SetVisualizerWorks);
+            T.Case("管道-阈值透传到检测器", ThresholdPassthrough);
             T.Case("管道-Dispose幂等", DisposeIdempotent);
         }
 
@@ -61,9 +61,11 @@ namespace YoloDetector.Tests
             T.Throws<ArgumentNullException>(
                 () => new YoloDetectionService(null, new NullVisualizer()),
                 "null 检测器应抛 ArgumentNullException");
-            T.Throws<ArgumentNullException>(
-                () => new YoloDetectionService(new FakeDetector()).SetVisualizer(null),
-                "null 可视化器应抛 ArgumentNullException");
+
+            // null 可视化器回退默认实现（OpenCVVisualizer），不得抛异常
+            var svc = new YoloDetectionService(new FakeDetector(), null);
+            T.True(svc != null, "null 可视化器应回退默认实现");
+            svc.Dispose();
         }
 
         private static void StartStopLifecycle()
@@ -311,17 +313,16 @@ namespace YoloDetector.Tests
             }
         }
 
-        private static void SetVisualizerWorks()
+        private static void ThresholdPassthrough()
         {
             var svc = CreateRunning(new FakeDetector());
             try
             {
-                svc.SetVisualizer(new NullVisualizer()); // 不抛即通过（热切换契约）
                 Mat last = null;
                 svc.FrameProcessed += (s, m) => last = m;
 
                 using (var f = TestUtil.RandomBgrMat(32, 32)) { svc.ProcessFrame(f); }
-                T.True(T.WaitFor(() => last != null, 10000), "切换可视化器后帧事件仍正常");
+                T.True(T.WaitFor(() => last != null, 10000), "运行态帧事件正常");
 
                 // 管道 ConfidenceThreshold/NmsThreshold 属性透传到检测器
                 svc.ConfidenceThreshold = 0.77f;
