@@ -8,7 +8,7 @@
 
 - 📹 **RTSP 流接入**：OpenCV VideoCapture 逐帧捕获，单槽位缓冲自动丢帧防积压
 - 🎯 **YOLO 实时推理**：ONNX Runtime 加载模型，独立检测线程，UI 不卡顿
-- ⚡ **静电杆触摸检测**（可选旁路）：YOLO-pose 人体关键点 + 静电杆 ROI 区域规则——手腕进入标定区域并持续达到阈值时长即判定"正在触摸"，预览画面叠加黄色 ROI 框/接触状态/手腕落点，日志面板提示状态翻转；判定纯几何规则完全可解释，ROI/时长/容差全配置化，关闭后零开销
+- ⚡ **静电杆触摸检测**（可选旁路）：YOLO-pose 人体关键点 + 静电杆 ROI 区域规则——手腕进入标定区域并持续达到阈值时长即判定"正在触摸"，预览画面叠加黄色 ROI 框/接触状态/手腕落点，日志面板提示状态翻转；**ROI 支持预览画面上鼠标拖拽框选标定（实时生效并自动保存）**；判定纯几何规则完全可解释，ROI/时长/容差全配置化，关闭后零开销
 - 🖼️ **双可视化方案**：Skia 红框（YoloBuiltin）/ OpenCV 绿框（OpenCV），配置文件一键切换；绘制后端跨平台（Windows/Linux 效果一致）
 - 🧩 **检测模块可整体迁移**：`Detection/` 为独立类库（net472 + netstandard2.0 双目标），托管与 native 依赖（Windows + Linux）全部内置仓库，离线编译、整目录复制即接入，Linux 上检测能力开箱可用（见 `docs/MODULE.md`）
 - 🔌 **多品牌相机解耦**：`ICameraApi` 接口 + 工厂模式，当前内置安格华（ANGEHUA）实现，海康/大华可按同一模式扩展
@@ -44,7 +44,7 @@ YoloDetector/
 ├── Detection/yoloConfig.json      YOLO 运行参数
 ├── Detection/esdConfig.json       静电杆触摸检测参数
 ├── Detection/model/*.onnx         模型文件（yolo26n 人员检测 + yolo11n-pose 姿态）
-└── docs/                   ARCHITECTURE（架构）/ MODULE（模块接入）/ ONNX模型获取指南
+└── docs/                   ARCHITECTURE（架构）/ MODULE（模块接入）/ ONNX模型获取指南 / 技术分享-实现详解
 ```
 
 依赖方向严格单向：`UI → App → Detection/Cameras → Infrastructure/Configuration`。
@@ -100,10 +100,10 @@ dotnet build YoloDetector.csproj -v q
 
 工作原理：对检出的人员逐人做姿态推理取**手腕关键点**，手腕落入静电杆 ROI 并持续 `HoldDurationMs` 毫秒即判定"正在触摸"；短暂遮挡在 `ReleaseGraceMs` 内不断开。
 
-现场标定三步：
+现场标定（推荐拖拽，一次到位）：
 
-1. 启动预览 → 画面上出现黄色 **ESD POLE** 框即当前 ROI 位置
-2. 调整 `RoiX/RoiY/RoiW/RoiH`（0~1 归一化比例坐标）使黄框套住静电杆操作部位
+1. 启动预览 → **在画面上按住鼠标左键拖拽，框住静电杆操作部位后松手**——ROI 立即生效（黄色 ESD POLE 框即时移动到新位置）并自动保存回 `esdConfig.json`，无需重启
+2. 不满意可重复拖拽修正；也可手动改 `RoiX/RoiY/RoiW/RoiH`（0~1 归一化比例坐标，改完需重启预览）
 3. 按需微调：路人扫过也报 → 调大 `HoldDurationMs`；摸了不报 → 加大 `MarginPx` 或调低 `WristConfidenceThreshold`
 
 ```jsonc
@@ -150,7 +150,8 @@ python tools\download_pose_model.py --export
 | --- | --- |
 | [AGENTS.md](AGENTS.md) | AI/维护者协作规范：铁律、分层边界、并发红线、构建验证命令、测试沉淀红线 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构分层图、线程模型、Mat 所有权链路、YOLO 推理实现细节 |
-| [docs/MODULE.md](docs/MODULE.md) | 检测模块接入指南：最小示例、接口扩展点、离线部署清单 |
+| [docs/技术分享-人员检测与人手动作检测实现详解.md](docs/技术分享-人员检测与人手动作检测实现详解.md) | 面向小白的原理讲解：人员检测五步流水线、姿态关键点+接触状态机、两级叠加绘制、多线程/内存/性能工程细节、FAQ（技术分享会材料） |
+| [docs/MODULE.md](docs/MODULE.md) | 检测模块接入指南：最小示例、静电杆 ROI 拖拽标定傻瓜接入、接口扩展点、离线部署清单 |
 | [docs/ONNX模型获取指南.md](docs/ONNX模型获取指南.md) | 换模型时的下载与 pt→onnx 转换操作手册 |
 | [.opencode/skill/全量回归验证/](.opencode/skill/全量回归验证/SKILL.md) | 一键回归验证 skill：构建 + 97 个进程内回归用例 + GUI 冒烟（`Run-AllTests.ps1`），含模块↔用例对账表 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本改动记录 |

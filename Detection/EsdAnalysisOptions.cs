@@ -1,3 +1,5 @@
+using System;
+
 namespace YoloDetection
 {
     /// <summary>
@@ -65,5 +67,29 @@ namespace YoloDetection
 
         /// <summary>是否在预览帧上绘制 ROI 与接触状态叠加层</summary>
         public bool DrawOverlay { get; set; } = true;
+
+        /// <summary>
+        /// 运行期热更新 ROI（归一化坐标）：非法值就地夹紧，语义与宿主 ToOptions 一致。
+        ///
+        /// 使用场景：UI 拖拽框选静电杆区域后由宿主调用。本实例被 EsdContactAnalyzer
+        /// 长期持有且每帧读取，改字段即下一帧生效，无需重建检测链路。
+        ///
+        /// 线程契约：允许 UI 线程调用（检测线程并发读取）。四个字段非原子写入，
+        /// 极端情况下检测线程某帧可能读到"半新半旧"的组合值——后果仅为该帧判定
+        /// 区域短暂偏移（毫秒级自愈），故刻意不加锁：ROI 微调不需要强一致，
+        /// 而每帧读取走锁是白耗性能。
+        /// </summary>
+        public void ApplyNormalizedRoi(float roiX, float roiY, float roiW, float roiH)
+        {
+            RoiX = Clamp01(roiX);
+            RoiY = Clamp01(roiY);
+            RoiW = Math.Max(0.01f, Clamp01(roiW)); // 宽高下限防止退化成零面积区域
+            RoiH = Math.Max(0.01f, Clamp01(roiH));
+        }
+
+        private static float Clamp01(float v)
+        {
+            return v < 0f ? 0f : (v > 1f ? 1f : v);
+        }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using Newtonsoft.Json;
 
 namespace YoloDetector.Configuration
@@ -231,6 +232,57 @@ namespace YoloDetector.Configuration
                 _yoloConfig = new YoloConfig();
             }
             System.Diagnostics.Debug.WriteLine("使用YOLO默认配置");
+        }
+
+        /// <summary>
+        /// 把拖拽标定出的静电杆 ROI 写回 Detection/esdConfig.json 并同步内存单例。
+        ///
+        /// 双通道更新：
+        ///   1. 内存单例就地夹紧更新——下一次 StartVideoPreview 构造 EsdOptions 时直接用新值；
+        ///   2. JSON 文件局部更新（EsdConfig.UpdateRoiJson）——保留 "_说明" 等注释字段，
+        ///      文件缺失/损坏时退化为整对象序列化（丢注释但保证功能可用）。
+        ///
+        /// 写盘失败只记调试日志不抛异常：调用方（UI 标定流程）已先行热更新运行链路，
+        /// 配置落盘失败不影响本次预览效果，下次标定可再覆盖。
+        /// </summary>
+        public static void SaveEsdRoi(float roiX, float roiY, float roiW, float roiH)
+        {
+            EsdConfig config;
+            lock (_lockObj)
+            {
+                config = _esdConfig;
+            }
+
+            if (config == null)
+            {
+                return; // 静态构造尚未加载过（理论上不可能：属性访问会触发加载），防御跳过
+            }
+
+            config.ApplyNormalizedRoi(roiX, roiY, roiW, roiH);
+
+            try
+            {
+                string updated = null;
+                if (File.Exists(EsdConfigFilePath))
+                {
+                    string original = File.ReadAllText(EsdConfigFilePath);
+                    updated = EsdConfig.UpdateRoiJson(
+                        original, config.RoiX, config.RoiY, config.RoiW, config.RoiH);
+                }
+
+                if (updated == null)
+                {
+                    updated = JsonConvert.SerializeObject(config, Formatting.Indented);
+                    System.Diagnostics.Debug.WriteLine("ESD配置文件缺失或损坏，已用整对象序列化重建");
+                }
+
+                // 无 BOM UTF-8（与现有文件编码一致；JSON 解析对 BOM 不敏感，统一无 BOM）
+                File.WriteAllText(EsdConfigFilePath, updated, new UTF8Encoding(false));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("ESD ROI 配置写回失败: " + ex.Message);
+            }
         }
 
         /// <summary>加载静电接触(ESD)配置文件（失败时回退到代码默认值）</summary>

@@ -55,6 +55,7 @@ namespace YoloDetector.Tests
             T.Case("管道-ESD旁路事件与快照联动", Pipeline_EsdEvents);
             T.Case("管道-姿态异常不影响主检测", Pipeline_PoseExceptionSurvival);
             T.Case("管道-未配置ESD时零附加事件", Pipeline_NoEsdNoEvents);
+            T.Case("ESD-Options热更新ROI夹紧且分析器立即可见", OptionsApplyRoiHotUpdate);
         }
 
         /// <summary>造一个人体框（中心点+尺寸）</summary>
@@ -101,6 +102,38 @@ namespace YoloDetector.Tests
         }
 
         // ---------- 用例实现 ----------
+
+        /// <summary>
+        /// UI 拖拽标定的热更新路径：ApplyNormalizedRoi 就地夹紧写入后，
+        /// 同一实例上的 ComputeRoiPixels 立即读到新值——证明运行中的分析器
+        /// 无需重建即可生效（VideoDetectionController.TryUpdateEsdRoi 的底层语义）。
+        /// </summary>
+        private static void OptionsApplyRoiHotUpdate()
+        {
+            var options = MakeOptions(); // 初始 ROI=(0.4,0.2,0.2,0.3)
+
+            // 合法值就地生效
+            options.ApplyNormalizedRoi(0.5f, 0.6f, 0.25f, 0.1f);
+            T.True(Math.Abs(options.RoiX - 0.5f) < 0.0001f, "热更新 X=0.5");
+            T.True(Math.Abs(options.RoiY - 0.6f) < 0.0001f, "热更新 Y=0.6");
+            T.True(Math.Abs(options.RoiW - 0.25f) < 0.0001f, "热更新 W=0.25");
+            T.True(Math.Abs(options.RoiH - 0.1f) < 0.0001f, "热更新 H=0.1");
+
+            var roi = EsdContactAnalyzer.ComputeRoiPixels(options, 1000, 800);
+            T.True(Math.Abs(roi.X - 500f) < 0.01f, "分析器立即读到新 X(0.5×1000=500)");
+            T.True(Math.Abs(roi.W - 250f) < 0.01f, "分析器立即读到新 W(0.25×1000=250)");
+
+            // 非法值夹紧（UI 传入越界坐标不得让检测逻辑跑飞）
+            options.ApplyNormalizedRoi(-1f, 2f, 0f, 5f);
+            T.Eq(0f, options.RoiX, "负 X 夹紧到 0");
+            T.Eq(1f, options.RoiY, ">1 的 Y 夹紧到 1");
+            T.Eq(0.01f, options.RoiW, "0 宽夹紧到最小 0.01（防零面积区域）");
+            T.Eq(1f, options.RoiH, ">1 的高夹紧到 1");
+
+            // 夹紧后仍能正常换算（RoiX=0 → 贴左缘的窄条区域，合法可用）
+            var roi2 = EsdContactAnalyzer.ComputeRoiPixels(options, 1000, 800);
+            T.Eq(0f, roi2.X, "夹紧到 X=0 后贴左缘换算正确");
+        }
 
         private static void RoiConversion()
         {

@@ -23,7 +23,7 @@
   - Newtonsoft.Json（配置序列化，NuGet）
   - System.Net.Http（流地址测试）
 - 构建：`dotnet build YoloDetector.csproj`（见下方"构建与验证命令"），输出到 `bin\Debug\net472\`
-- 已移除 LibVLCSharp/VideoLAN 包与 YOLOTest 历史实验区（模型获取指南已迁至 `docs/ONNX模型获取指南.md`）；`docs\` 保留 `ARCHITECTURE.md`（架构）、`MODULE.md`（模块接入指南）、`ONNX模型获取指南.md`（换模型）三份
+- 已移除 LibVLCSharp/VideoLAN 包与 YOLOTest 历史实验区（模型获取指南已迁至 `docs/ONNX模型获取指南.md`）；`docs\` 保留 `ARCHITECTURE.md`（架构）、`MODULE.md`（模块接入指南）、`ONNX模型获取指南.md`（换模型）、`技术分享-人员检测与人手动作检测实现详解.md`（小白向原理讲解/分享会材料）四份
 
 ## 目录结构（分层架构，改动须维持边界）
 
@@ -61,6 +61,13 @@ YoloDetector/
 
 ## 代码约定
 
+- **新功能动手前先自问"能不能进 Detection 类库"（用户强制约定，每次必须执行，不等提醒）**：
+  判断标准——这段逻辑脱离宿主后是否仍成立（不依赖 WinForms 控件 / System.Drawing / AppConfig / 相机品牌 / UI 线程）？
+  - **能 → 必须优先封装进 Detection 类库**（纯逻辑、可单测、随库迁移），宿主只留薄壳接线
+    （范例：`RoiSelectionState`/`ZoomMapping` 在类库，`RoiSelectionPictureBox` 只是 WinForms 薄壳）；
+  - 部分能 → 拆分：纯逻辑进类库，平台相关壳留宿主（单文件可复制）；
+  - 自检问题：**把 `Detection\` 目录复制到新项目后，这个功能是否零重做即可用？** 答案为否就重新分层；
+  - 类库侧禁用 UI 框架类型（用 float 参数/类库自有结构如 `EsdRoiRect` 代替 Point/Rectangle）。
 - 类、方法、属性用 PascalCase；私有字段用 `_camelCase`；接口前缀 `I`；**文件名与公共类名保持一致**（如 `AngehuaCameraApiClient.cs` ↔ `class AngehuaCameraApiClient`）。
 - 控件命名沿用 Designer 匈牙利前缀：`lbl` / `txt` / `btn` / `pBox_` / `num` 等（跟随 `UI/MainForm.Layout.cs` 既有风格）。
 - **窗体布局代码统一放 partial 文件**（`MainForm.Layout.cs`），主文件只放业务逻辑；新增窗体遵循同样拆分。
@@ -105,8 +112,9 @@ YoloDetector/
 
 | 文件 | 作用 |
 | --- | --- |
-| `UI/MainForm.cs` | 主窗体（纯视图层）：按钮事件转发、日志面板、SafeBeginInvoke 调度、FormClosing 清理顺序 |
+| `UI/MainForm.cs` | 主窗体（纯视图层）：按钮事件转发、日志面板、SafeBeginInvoke 调度、FormClosing 清理顺序、静电杆 ROI 拖拽标定接线（仅订阅 RoiSelected 事件） |
 | `UI/MainForm.Layout.cs` | 主窗体布局（InitializeComponent + 控件字段声明） |
+| `UI/RoiSelectionPictureBox.cs` | 自带拖拽框选标定的预览控件（WinForms 薄壳：鼠标接线/虚线框/坐标换算全内置，接入方订阅 RoiSelected 即用；纯逻辑在类库） |
 | `App/VideoDetectionController.cs` | 检测链路编排：帧源→管道→可视化生命周期、Mat 所有权终结点、模型复用 |
 | `App/SkBitmapExtensions.cs` | SKBitmap→Drawing.Bitmap 宿主边界转换（Windows 显示专用，约 0.5ms） |
 | `App/CameraController.cs` | 相机连接状态机、防重入状态轮询、拉/推流操作 |
@@ -116,6 +124,8 @@ YoloDetector/
 | `Detection/YoloPoseDetector.cs` | YOLO-pose 姿态推理：逐人裁剪扩边→17关键点还原；输出布局/动态维自动兼容 |
 | `Detection/EsdContactAnalyzer.cs` | 静电杆接触状态机（手腕落区+持续时长认定+宽限保持+轨迹跟踪）；仅检测线程串行调用 |
 | `Detection/EsdOverlayRenderer.cs` | 静电接触叠加绘制（OpenCV 原地矢量绘制；标签用英文，PutText 不支持中文） |
+| `Detection/RoiSelectionState.cs` | ROI 拖拽框选状态机（类库内纯逻辑，零 UI 框架依赖；误触 <5px 忽略，随库迁移） |
+| `Detection/ZoomMapping.cs` | Zoom(letterbox) 模式坐标换算（控件点→归一化 + 拖拽端到端换算 ROI，类库内纯函数可单测） |
 | `Detection/MatExtensions.cs` | Mat↔SKBitmap 高性能互转（唯一转换入口，全平台无损） |
 | `Detection/YoloBuiltinVisualizer.cs` | Skia 红框可视化器（跨平台；工厂与 OpenCV 绿框在 Visualizers.cs） |
 | `Detection/IDetectionPipeline.cs` / `IFrameSource.cs` / `IYoloDetector.cs` / `IDetectionVisualizer.cs` / `IDetectorFactory.cs` / `IDetectionResultProcessor.cs` | 检测域各抽象接口（含所有权/线程契约注释） |
@@ -151,7 +161,7 @@ else { $proc.CloseMainWindow() | Out-Null; if ($proc.WaitForExit(8000)) { "PASS:
 ```
 
 - 成功标准：输出 `bin\Debug\net472\YoloDetector.exe`，退出码 0；日志文件出现配对的"程序启动/程序退出"标记。
-- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：97 用例 harness 覆盖配置含EsdConfig/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理/姿态检测器/静电接触状态机与叠加渲染/管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
+- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：108 用例 harness 覆盖配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理/姿态检测器/静电接触状态机与叠加渲染/管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
 - 涉及检测算法的改动，除跑 skill 外再用本地图片直接喂 `YoloV26Detector.Detect(Mat)` 做对照验证，确保坐标映射/过滤行为不变。
 - **界面像素级 bug（竖线/颜色/叠色/裁剪/滚动条）**：调用技能 `winforms-ui-debug`（独立 harness 直 new 目标窗体 + PrintWindow 截图 + 像素扫描定位根因）。
 - **调试完自动沉淀技能**：用 `winforms-ui-debug` 或其他套路排查成功后，主动把可复用的新踩坑/新探针回写到对应 SKILL.md 与本文件。

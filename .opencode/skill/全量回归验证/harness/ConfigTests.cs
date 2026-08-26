@@ -28,6 +28,9 @@ namespace YoloDetector.Tests
             T.Case("配置-加载损坏JSON回退默认值", BrandFallbackOnBrokenJson);
             T.Case("配置-EsdConfig现场加载且模型存在", EsdConfigSane);
             T.Case("配置-EsdConfig.ToOptions非法值夹紧", EsdToOptionsClamps);
+            T.Case("配置-EsdConfig.UpdateRoiJson局部更新保留注释", EsdUpdateRoiJsonPreservesComments);
+            T.Case("配置-EsdConfig.UpdateRoiJson缺失字段补建与坏JSON兜底", EsdUpdateRoiJsonEdgeCases);
+            T.Case("配置-EsdConfig.ApplyNormalizedRoi就地夹紧", EsdApplyNormalizedRoiClamps);
         }
 
         /// <summary>验证真实现场配置能正常加载且取值在合法范围</summary>
@@ -171,6 +174,93 @@ namespace YoloDetector.Tests
             var gopts = good.ToOptions();
             T.Eq(0.4f, gopts.RoiX, "合法 RoiX 原样保留");
             T.Eq(0.35f, gopts.RoiH, "合法 RoiH 原样保留");
+        }
+
+        /// <summary>
+        /// UI 拖拽标定写回的核心契约：JObject 局部更新只动四个 ROI 字段，
+        /// "_说明"/"_现场标定" 等模型外的中文注释字段与其他参数原样保留
+        /// （整体序列化会抹掉它们，现场调参指南就丢了——这是本方法的存亡线）。
+        /// </summary>
+        private static void EsdUpdateRoiJsonPreservesComments()
+        {
+            const string original = @"{
+  ""_说明"": ""静电杆触摸检测配置"",
+  ""_现场标定"": ""启动预览后拖拽标定"",
+  ""Enabled"": true,
+  ""PoseModelPath"": ""Detection/model/yolo11n-pose.onnx"",
+  ""RoiX"": 0.40,
+  ""RoiY"": 0.25,
+  ""RoiW"": 0.20,
+  ""RoiH"": 0.35,
+  ""HoldDurationMs"": 1500
+}";
+
+            string updated = EsdConfig.UpdateRoiJson(original, 0.1f, 0.2f, 0.3f, 0.4f);
+            T.True(updated != null, "合法输入应返回更新后的文本");
+
+            // 注释字段必须原样保留
+            T.True(updated.Contains("\"_说明\""), "_说明 注释字段应保留");
+            T.True(updated.Contains("\"_现场标定\""), "_现场标定 注释字段应保留");
+            T.True(updated.Contains("静电杆触摸检测配置"), "注释内容应保留");
+
+            var parsed = Newtonsoft.Json.Linq.JObject.Parse(updated);
+
+            // 四个 ROI 字段已更新（JSON 文本读回带 double 尾差，必须用容差断言）
+            T.True(Math.Abs((float)parsed["RoiX"] - 0.1f) < 0.0001f, "RoiX 应更新为 0.1，实际=" + parsed["RoiX"]);
+            T.True(Math.Abs((float)parsed["RoiY"] - 0.2f) < 0.0001f, "RoiY 应更新为 0.2");
+            T.True(Math.Abs((float)parsed["RoiW"] - 0.3f) < 0.0001f, "RoiW 应更新为 0.3");
+            T.True(Math.Abs((float)parsed["RoiH"] - 0.4f) < 0.0001f, "RoiH 应更新为 0.4");
+
+            // 其他参数不得被波及
+            T.Eq(true, (bool)parsed["Enabled"], "Enabled 不应被改动");
+            T.Eq(1500.0, (double)parsed["HoldDurationMs"], "HoldDurationMs 不应被改动");
+
+            // 反序列化往返：更新后的文本仍是合法的 EsdConfig 载体
+            var config = Newtonsoft.Json.JsonConvert.DeserializeObject<EsdConfig>(updated);
+            T.True(config != null && Math.Abs(config.RoiX - 0.1f) < 0.0001f, "更新后文本可正常反序列化");
+        }
+
+        /// <summary>手工删过字段的文件要能自动补建 ROI 键；坏输入一律返回 null 由调用方兜底重建</summary>
+        private static void EsdUpdateRoiJsonEdgeCases()
+        {
+            // 缺失的 ROI 字段自动追加到末尾
+            string updated = EsdConfig.UpdateRoiJson(
+                "{\n  \"Enabled\": true\n}", 0.5f, 0.5f, 0.25f, 0.25f);
+            T.True(updated != null, "缺字段输入应成功");
+            var parsed = Newtonsoft.Json.Linq.JObject.Parse(updated);
+            T.True(Math.Abs((float)parsed["RoiX"] - 0.5f) < 0.0001f, "缺失的 RoiX 应被补建");
+            T.Eq(true, (bool)parsed["Enabled"], "原有字段应保留");
+
+            // 非法值内部夹紧（双保险：调用方可能没先夹紧）
+            string clamped = EsdConfig.UpdateRoiJson(
+                "{\"RoiX\":0.4}", -1f, 2f, 0f, 1f);
+            var c = Newtonsoft.Json.Linq.JObject.Parse(clamped);
+            T.True(Math.Abs((float)c["RoiX"]) < 0.0001f, "负 X 夹紧到 0");
+            T.True(Math.Abs((float)c["RoiY"] - 1f) < 0.0001f, ">1 的 Y 夹紧到 1");
+            T.True(Math.Abs((float)c["RoiW"] - 0.01f) < 0.0001f, "0 宽夹紧到最小 0.01");
+
+            // 坏输入返回 null（调用方 SaveEsdRoi 会退化为整对象序列化重建文件）
+            T.True(EsdConfig.UpdateRoiJson(null, 0f, 0f, 0f, 0f) == null, "null 输入应返回 null");
+            T.True(EsdConfig.UpdateRoiJson("   ", 0f, 0f, 0f, 0f) == null, "空白输入应返回 null");
+            T.True(EsdConfig.UpdateRoiJson("{不是JSON", 0f, 0f, 0f, 0f) == null, "坏 JSON 应返回 null");
+        }
+
+        /// <summary>EsdConfig 实例方法就地夹紧：内存单例热更新路径（SaveEsdRoi 内部走这里）</summary>
+        private static void EsdApplyNormalizedRoiClamps()
+        {
+            var config = new EsdConfig { RoiX = 0.4f, RoiY = 0.25f, RoiW = 0.2f, RoiH = 0.35f };
+
+            config.ApplyNormalizedRoi(-1f, 2f, 0f, 5f);
+            T.Eq(0f, config.RoiX, "负 X 夹紧到 0");
+            T.Eq(1f, config.RoiY, ">1 的 Y 夹紧到 1");
+            T.Eq(0.01f, config.RoiW, "0 宽夹紧到最小 0.01");
+            T.Eq(1f, config.RoiH, ">1 的高夹紧到 1");
+
+            config.ApplyNormalizedRoi(0.42f, 0.31f, 0.18f, 0.27f);
+            T.True(Math.Abs(config.RoiX - 0.42f) < 0.0001f, "合法 X 就地写入");
+            T.True(Math.Abs(config.RoiY - 0.31f) < 0.0001f, "合法 Y 就地写入");
+            T.True(Math.Abs(config.RoiW - 0.18f) < 0.0001f, "合法 W 就地写入");
+            T.True(Math.Abs(config.RoiH - 0.27f) < 0.0001f, "合法 H 就地写入");
         }
     }
 }

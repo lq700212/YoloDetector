@@ -50,6 +50,7 @@ namespace YoloDetector.UI
             // 句柄创建后再记录启动日志，确保能显示到UI面板
             AddLog("程序已启动，请输入相机IP地址并点击【连接相机】");
             AddLog("提示：连接成功后点击【开始预览】查看摄像头画面");
+            AddLog("提示：预览时可在画面上按住鼠标左键拖拽，框选静电杆检测区域（立即生效并保存）");
         }
 
         private void InitializeControllers()
@@ -59,6 +60,11 @@ namespace YoloDetector.UI
                 Interval = AppConfig.Current.Preview.StatusRefreshIntervalMs
             };
             _statusTimer.Tick += StatusTimer_Tick;
+
+            // 静电杆 ROI 拖拽标定：控件内部已封装鼠标接线/虚线框绘制/坐标换算，
+            // 这里只订阅结果（归一化 ROI → 热更新 + 落盘）。
+            // 控件与窗体同生命周期，事件无需成对退订（控件销毁即随链断开）
+            videoPictureBox.RoiSelected += roi => ApplyEsdRoiSelection(roi.X, roi.Y, roi.W, roi.H);
         }
 
         // ============================================================
@@ -486,6 +492,30 @@ namespace YoloDetector.UI
             var old = videoPictureBox.Image;
             videoPictureBox.Image = frame;
             old?.Dispose();
+        }
+
+        // ============================================================
+        // 静电杆 ROI 拖拽标定（预览画面上框选静电杆区域）
+        //
+        // 交互封装在 RoiSelectionPictureBox 控件内（鼠标/绘制/坐标换算），
+        // 本窗体只消费结果：热更新运行链路 + 配置落盘。
+        // ============================================================
+
+        /// <summary>
+        /// 应用标定结果：先热更新运行链路（若 ESD 已启用），再把配置落盘。
+        /// 两步都失败也不抛异常——标定是辅助操作，日志说明结果即可。
+        /// </summary>
+        private void ApplyEsdRoiSelection(float roiX, float roiY, float roiW, float roiH)
+        {
+            bool liveApplied = _videoController != null && _videoController.TryUpdateEsdRoi(roiX, roiY, roiW, roiH);
+
+            AppConfig.SaveEsdRoi(roiX, roiY, roiW, roiH);
+
+            AddLog(liveApplied
+                ? string.Format(
+                    "静电杆区域已标定: X={0:F3} Y={1:F3} W={2:F3} H={3:F3}（已实时生效并保存到 esdConfig.json）",
+                    roiX, roiY, roiW, roiH)
+                : "静电杆区域已保存到 esdConfig.json（当前未启用静电触摸检测，下次启用预览时生效）");
         }
 
         /// <summary>检测结果回调：保存快照并按需输出统计日志</summary>

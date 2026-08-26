@@ -9,15 +9,21 @@
 Detection/                        ← 整个目录复制走即可
 ├── YoloDetector.Detection.csproj 类库工程文件（net472;netstandard2.0 双目标 / C# 7.3）
 ├── YoloV26Detector.cs            YOLO 推理实现（letterbox 预处理/双格式解析/NMS）
-├── YoloDetectionService.cs       检测管道（后台检测线程/单槽位缓冲/Monitor 停止协议）
+├── YoloPoseDetector.cs           YOLO-pose 姿态推理（逐人裁剪/COCO 17关键点）
+├── YoloDetectionService.cs       检测管道（后台检测线程/单槽位缓冲/Monitor 停止协议/ESD 旁路）
+├── EsdContactAnalyzer.cs         静电杆接触状态机（手腕落区+持续时长+跨帧跟踪）
+├── EsdOverlayRenderer.cs         静电接触叠加绘制（OpenCV 原地矢量绘制）
+├── EsdAnalysisOptions.cs / EsdRoiRect.cs   ESD 参数（含 ROI 热更新入口）/ 通用浮点矩形
+├── RoiSelectionState.cs          ROI 拖拽框选状态机（纯逻辑，任意 UI 框架可用）
+├── ZoomMapping.cs                Zoom(letterbox) 模式坐标换算（控件点→归一化，纯函数）
 ├── RtspFrameCapturer.cs          RTSP 帧源（可选，自带视频源时不需要）
 ├── Visualizers.cs                可视化器工厂 + OpenCV 绿框可视化器
 ├── YoloBuiltinVisualizer.cs      Skia 红框可视化器（跨平台）
 ├── MatExtensions.cs              Mat↔SKBitmap 高性能互转（全平台无损）
-├── DetectionResult.cs / YoloClasses.cs   结果模型 / COCO 类别表
+├── DetectionResult.cs / PoseResult.cs / YoloClasses.cs   结果模型 / COCO 类别表
 ├── LogManager.cs                 日志门面（输出通道由宿主注入）
 ├── libs/                         离线托管依赖（已入 git）+ libs/native/ 运行库（collect 脚本收集）
-└── I*.cs                         5 个抽象接口（见下表）
+└── I*.cs                         抽象接口（见下表）
 ```
 
 ## 2. 环境要求（离线友好）
@@ -101,6 +107,28 @@ class Demo
 ```
 
 带 RTSP 流的完整场景参考本项目 `App/VideoDetectionController.cs`（帧所有权全链路管理范例）。
+
+## 3.1 静电杆 ROI 拖拽标定（WinForms 傻瓜接入，约 5 行）
+
+类库已内置框选标定的全部纯逻辑（`RoiSelectionState` 状态机 + `ZoomMapping` 坐标换算），
+WinForms 宿主只需再复制一个薄壳控件 **`UI/RoiSelectionPictureBox.cs`**（单文件、仅依赖
+类库 + WinForms，鼠标接线/虚线框绘制/坐标换算全部内置），然后：
+
+```csharp
+// 1. 窗体上把控件当普通 PictureBox 用（或 Designer 里改控件类型）
+var pictureBox = new RoiSelectionPictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom };
+
+// 2. 订阅一个事件：拖完松手即收到归一化 ROI(0~1)，拿去热更新 + 持久化
+pictureBox.RoiSelected += roi =>
+{
+    esdOptions.ApplyNormalizedRoi(roi.X, roi.Y, roi.W, roi.H);  // 运行链路下一帧立即生效
+    SaveToYourConfig(roi);                                       // 持久化方式随宿主自定
+};
+```
+
+非 WinForms 宿主（WPF 等）：直接用类库的两个纯逻辑类自行接线——`RoiSelectionState`
+吃像素坐标吐框选矩形，`ZoomMapping.TryMapDragToNormalizedRoi` 一次拖拽端到端换算成
+归一化 ROI，两者均有回归测试锁定行为（harness `RoiSelectionTests` 分区）。
 
 ## 4. 接口一览（扩展点）
 

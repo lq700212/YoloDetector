@@ -348,5 +348,29 @@ namespace YoloDetector.App
                 handler(this, e);
             }
         }
+
+        /// <summary>
+        /// 运行期热更新静电杆 ROI（UI 拖拽标定调用）：归一化坐标就地夹紧，
+        /// 下一帧立即生效（分析器与叠加层每帧读取同一 Options 实例）。
+        ///
+        /// 返回 false 表示当前没有可更新的 ESD 链路（预览未启动，或静电触摸检测
+        /// 未启用/装配降级）——此时调用方仍应把值保存到配置文件，下次启用即生效。
+        /// </summary>
+        public bool TryUpdateEsdRoi(float roiX, float roiY, float roiW, float roiH)
+        {
+            var esdService = _pipeline as YoloDetection.YoloDetectionService;
+            YoloDetection.EsdAnalysisOptions options =
+                (esdService != null && esdService.EsdAnalyzer != null)
+                    ? esdService.EsdAnalyzer.Options
+                    : null;
+
+            if (options == null)
+            {
+                return false;
+            }
+
+            options.ApplyNormalizedRoi(roiX, roiY, roiW, roiH);
+            return true;
+        }
     }
 }

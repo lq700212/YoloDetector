@@ -2,6 +2,77 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.5（2026-08-26）ROI 拖拽标定下沉类库（模块迁移零重做）
+
+### 改动范围
+
+**重构：把 ROI 拖拽标定的全部纯逻辑从宿主 UI 层下沉进 Detection 类库**，接入方把库搬到其他项目时标定能力随库走，不再需要重写交互代码：
+
+- **Detection 类库新增**（命名空间 `YoloDetection`，零 System.Drawing/WinForms 依赖，跨平台）：
+  - `RoiSelectionState`：拖拽框选状态机（原宿主 `RoiSelectionInteraction` 迁移改造，Point/Rectangle 参数改为 float + 复用 `EsdRoiRect` 通用浮点矩形载体；Press/Drag/Release 契约与误触 <5px 忽略语义不变）
+  - `ZoomMapping`：Zoom(letterbox) 坐标换算（原宿主 `PictureBoxZoomMath` 迁移改造），并新增 `TryMapDragToNormalizedRoi`——一次拖拽端到端换算归一化 ROI（两端点映射→包围盒→最小面积→贴边回收），把宿主原来散在 MouseUp 里的业务换算也收编为可测纯函数
+- **宿主新增** `UI/RoiSelectionPictureBox.cs`：自带标定能力的预览控件（WinForms 薄壳，override 封装鼠标接线/虚线框绘制/坐标换算），接入方**拖上窗体 + 订阅 `RoiSelected` 事件**即完成接入（事件吐归一化 ROI，热更新/持久化由订阅方决定）
+- **宿主删除** `UI/PictureBoxZoomMath.cs`、`UI/RoiSelectionInteraction.cs`（逻辑已下沉）；MainForm 删掉 4 个鼠标/Paint 处理器与状态机字段，改为订阅 `RoiSelected` 一行接线；Layout 的 videoPictureBox 换用新控件类型
+- **文档**：`docs/MODULE.md` 文件清单补全 ESD/姿态/标定套件，新增"3.1 静电杆 ROI 拖拽标定（WinForms 傻瓜接入，约 5 行）"章节（含非 WinForms 宿主用纯逻辑类自接线的说明）；AGENTS.md 导航表同步
+- **测试**：RoiSelectionTests 分区改为直接测类库类型（引用 YoloDetector.UI → YoloDetection），新增拖拽端到端换算用例（正常/贴边回收/反向/无效图像），97→109 用例全绿；SKILL.md 对账表同步
+
+### 为什么这么改
+
+用户反馈：后续要把检测库接入其他项目，ROI 拖拽标定如果留在宿主 UI 层就得每个项目重做一遍。本次把"能随库走的"（状态机、坐标换算——纯逻辑零依赖）全部下沉类库，宿主只留一个必须依赖 WinForms 的薄壳控件（单文件可复制）；非 WinForms 宿主也能直接用类库纯逻辑自行接线。接入成本从"重写整套交互"降到"复制一个控件文件 + 订阅一个事件"。
+
+### 优化点
+
+- `TryMapDragToNormalizedRoi` 收编了宿主 MouseUp 里的换算业务（包围盒/最小 0.01 面积/贴边回收），该逻辑此前无测试覆盖，现在被 4 个断言锁定；
+- MainForm 视图层进一步变薄（删约 90 行交互代码），符合"主文件只放业务逻辑"约定；
+- 全量回归 109/109 全绿 + GUI 冒烟通过。
+
+## v2.4（2026-08-26）静电杆 ROI 拖拽标定（所见即所得）
+
+### 改动范围
+
+**新功能：预览画面上按住鼠标左键拖拽框选静电杆区域，松手即完成 ROI 标定**——运行链路下一帧立即生效 + 自动写回 `Detection/esdConfig.json`，取代旧版"手改 JSON 四个比例值 → 重启预览 → 目检黄框 → 再改"的反复试错流程：
+
+- **UI 层新增两个纯逻辑类（可单测，不碰控件）**：
+  - `UI/PictureBoxZoomMath.cs`：PictureBox Zoom 模式坐标换算（显示区 letterbox 计算 + 控件点→图像归一化坐标，黑边/出界夹紧到 [0,1]）；
+  - `UI/RoiSelectionInteraction.cs`：拖拽框选状态机（Press/Drag/Release，反向拖拽规范化，<5px 判误触忽略）；
+- **UI 接线**：`MainForm` 四个事件处理器（MouseDown/Move/Up/Paint）只做一行转发；拖拽中 Paint 叠加黄色虚线框（与运行期 ESD 黄框同色系）；松手后先 `TryUpdateEsdRoi` 热更新再 `SaveEsdRoi` 落盘，日志面板报告结果；`videoPictureBox` 光标改 Cross 提示可框选；启动提示语补充标定说明
+- **App 层**：`VideoDetectionController.TryUpdateEsdRoi`——找到运行中管道的 `EsdAnalyzer.Options` 就地夹紧写入（分析器与叠加层每帧读同一实例 → 下一帧生效，无需重建链路）；ESD 未启用时返回 false，调用方仍保存配置供下次启用
+- **Configuration 层**：`EsdConfig.ApplyNormalizedRoi`（内存单例热更新）+ `EsdConfig.UpdateRoiJson`（**JObject 局部更新四个字段，保留 "_说明"/"_现场标定" 等模型外中文注释字段与字段顺序**——整体序列化会抹掉现场依赖的调参指南）；`AppConfig.SaveEsdRoi` 双通道更新（内存单例 + 文件写回，UTF-8 无 BOM；文件缺失/损坏退化为整对象序列化重建）
+- **Detection 层**：`EsdAnalysisOptions.ApplyNormalizedRoi`（模块侧安全更新入口，夹紧语义与 ToOptions 一致；注释写明 UI 线程写/检测线程读的弱一致取舍）
+- **配置说明**：`Detection/esdConfig.json` 的 `_现场标定` 说明更新为拖拽标定优先（参数值未动）
+- **回归体系 97→108 用例**：新增 RoiSelectionTests 分区（Zoom 显示矩形居中/点映射与黑边夹紧/无效尺寸/框选状态机正常流·误触·反向·未按下忽略，7 例）；ConfigTests 补 UpdateRoiJson 保留注释/缺失字段补建与坏 JSON 兜底/ApplyNormalizedRoi 夹紧 3 例；EsdAnalyzerTests 补 Options 热更新 ROI 夹紧且分析器立即可见 1 例；SKILL.md 对账表同步；新增 STA 目检探针 `Invoke-RoiDragVisualCheck.ps1`（反射驱动框选 + 截图目检虚线框）
+
+### 为什么这么改
+
+用户反馈手改 JSON 标定 ROI 需要反复试错（改值→重启→目检→再改）。归一化 ROI 本质是"画面上的一块矩形"，直接在画面上拖出来是最自然的交互；热更新通道（分析器每帧读同一 Options 实例）让标定结果即时可见，配合运行期 ESD 黄框形成"拖→看→微调"的闭环。JSON 写回坚持局部更新是为了保住现场依赖的中文调参指南注释。
+
+### 优化点
+
+- 坐标换算与框选状态机抽成纯函数类，MainForm 事件层零逻辑（GUI 冒烟兜底整体链路，单测锁定数学）；
+- `Release` 契约收紧：返回 false（误触）时输出矩形一律为 Empty，调用方免判幅度；
+- 开发中被用例当场暴露 2 处笔误（夹紧后贴边断言期望值写错、框选宽高断言写反），修复后全绿。
+
+## v2.3（2026-08-26）技术分享文档《人员检测与人手动作检测实现详解》
+
+### 改动范围
+
+新增 `docs/技术分享-人员检测与人手动作检测实现详解.md`（约 340 行，面向小白的完整原理讲解，作为技术分享会学习材料）。内容全部取材于现有代码与既有文档，无任何代码改动：
+
+- **人员检测五步流水线**：letterbox 预处理（含 ASCII 图示与坐标还原公式）、ONNX 推理、双格式输出解析、过滤去重链（类别→置信度→边界→NMS→Top5），附"逐像素 P/Invoke 30~80ms → 整块拷贝 1~3ms"性能对比；
+- **人手动作检测**：技术选型对比表（为何不用动作分类模型而用"手腕关键点+区域规则"）、COCO 17 关键点 ASCII 骨架图、逐人裁剪扩边推理的取舍原因、最近邻跨帧跟踪、接触状态机四阶段图解（Hold/Grace/Forget/Margin 各自防什么干扰）；
+- **串联关系**：检测线程内一帧的七步完整时序图、"三级接力"数据流解释、ESD 旁路三道防线（零开销/启动降级/运行跳帧）、事件出口一览；
+- **界面绘制**：两层叠加绘制（Skia 红框层 + OpenCV 原地 ESD 层）及分层理由、Mat→SKBitmap→Bitmap→PictureBox 显示链路与资源交接、标签英文的原因、单槽位丢帧保实时的原理；
+- **工程细节**：三线程模型、停止协议、Mat 所有权生死簿、性能优化清单表、配置体系、分层架构图、已知限制；
+- **附录**：文件索引、分享会 FAQ 六问预演（含"CPU 能跑吗""内存会不会越用越多"等高频问题）。
+
+### 为什么这么改
+
+用户要开技术分享会，需要一份小白能看懂、又能支撑深度提问的讲解材料。现有 `ARCHITECTURE.md` 是面向维护者的浓缩速查，不适合从零学起的人；本文按"全景→名词→人的检测→手部动作→怎么串起来→框怎么画→工程细节"的递进结构重讲一遍，所有数字/公式/行为均核对源码后撰写，并预置 FAQ 供分享会答辩使用。
+
+### 优化点
+
+同步更新 README.md（开发者文档表格 + 目录结构 docs 描述）与 AGENTS.md（docs 文档清单）；编码自查通过（UTF-8 中文完整命中）。
+
 ## v2.2（2026-08-26）静电杆触摸检测（姿态关键点 + 区域规则）
 
 ### 改动范围

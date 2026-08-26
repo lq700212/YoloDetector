@@ -184,6 +184,7 @@ namespace YoloDetector.Tests
             AngehuaClientTests.RunAll();        // 安格华客户端契约 + DeviceStatus 计算
             LogManagerTests.RunAll();           // 日志门面开关（复位全局状态）
             LoggerTests.RunAll();               // 文件日志契约（Close 后进程内日志静默，须在 UI 冒烟前）
+            RoiSelectionTests.RunAll();         // ROI 拖拽标定纯逻辑（Zoom 坐标换算 + 框选状态机）
             UiSmokeTests.RunAll();              // MainForm 构造/显示/关闭冒烟
 
             int fails = T.Finish();

@@ -94,7 +94,7 @@ namespace YoloDetector.UI
             this.rightPanel = new System.Windows.Forms.Panel();
             this.rightTable = new System.Windows.Forms.TableLayoutPanel();
             this.videoPanel = new System.Windows.Forms.Panel();
-            this.videoPictureBox = new System.Windows.Forms.PictureBox();
+            this.videoPictureBox = new RoiSelectionPictureBox();
             this.lblVideoTitle = new UILabel();
             this.logPanel = new UIPanel();
             this.lblLog = new UILabel();
@@ -382,7 +382,8 @@ namespace YoloDetector.UI
             this.videoPanel.Padding = new System.Windows.Forms.Padding(0, 0, 0, 6);
             this.videoPanel.Size = new System.Drawing.Size(938, 517);
             //
-            // videoPictureBox —— 逐帧显示（原生控件，性能关键路径勿换）
+            // videoPictureBox —— 逐帧显示 + 内置拖拽框选标定（RoiSelectionPictureBox：
+            // 鼠标接线/虚线框/坐标换算全在控件内，Cross 光标为其默认值，勿换原生 PictureBox）
             //
             this.videoPictureBox.Dock = System.Windows.Forms.DockStyle.Fill;
             this.videoPictureBox.Name = "videoPictureBox";
@@ -562,7 +563,7 @@ namespace YoloDetector.UI
         private System.Windows.Forms.Panel rightPanel;
         private System.Windows.Forms.TableLayoutPanel rightTable;
         private System.Windows.Forms.Panel videoPanel;
-        private System.Windows.Forms.PictureBox videoPictureBox;
+        private RoiSelectionPictureBox videoPictureBox;
         private UILabel lblVideoTitle;
         private UIPanel logPanel;
         private UILabel lblLog;

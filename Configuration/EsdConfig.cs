@@ -1,5 +1,6 @@
 using System;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using YoloDetection;
 
 namespace YoloDetector.Configuration
@@ -88,6 +89,56 @@ namespace YoloDetector.Configuration
                 WristConfidenceThreshold = Clamp(WristConfidenceThreshold, 0.05f, 0.95f),
                 DrawOverlay = DrawOverlay
             };
+        }
+
+        /// <summary>
+        /// 运行期热更新 ROI（归一化坐标，就地夹紧）：UI 拖拽标定后同步内存单例用，
+        /// 语义与 <see cref="ToOptions"/> 的夹紧规则完全一致。
+        /// </summary>
+        public void ApplyNormalizedRoi(float roiX, float roiY, float roiW, float roiH)
+        {
+            RoiX = Clamp(roiX, 0f, 1f);
+            RoiY = Clamp(roiY, 0f, 1f);
+            RoiW = Clamp(roiW, 0.01f, 1f);
+            RoiH = Clamp(roiH, 0.01f, 1f);
+        }
+
+        /// <summary>
+        /// 在 esdConfig.json 的原始文本中局部更新四个 ROI 字段，其余内容
+        /// （"_说明"、"_现场标定" 等中文注释字段与全部参数）原样保留。
+        ///
+        /// 为什么不用"反序列化→整体序列化回写"：JSON 里有大量以下划线开头的
+        /// 说明性字段（不在本模型属性中），整体序列化会把现场依赖的调参指南注释
+        /// 全部抹掉。JObject 局部更新既保注释又保字段顺序。
+        ///
+        /// 返回更新后的 JSON 文本（缩进格式化）；输入为空或不是合法 JSON 时返回 null，
+        /// 由调用方决定回退策略。四个值内部夹紧，与 ApplyNormalizedRoi 双保险。
+        /// </summary>
+        public static string UpdateRoiJson(string originalJson, float roiX, float roiY, float roiW, float roiH)
+        {
+            if (string.IsNullOrWhiteSpace(originalJson))
+            {
+                return null;
+            }
+
+            JObject root;
+            try
+            {
+                root = JObject.Parse(originalJson);
+            }
+            catch (JsonReaderException)
+            {
+                return null; // 文件被手改坏：交由调用方走整对象重建路径
+            }
+
+            // JObject 保持插入顺序：已存在的键原地改值（顺序不变），
+            // 缺失的键追加到末尾（手工删过字段的文件也能自动补全）
+            root["RoiX"] = new JValue(Clamp(roiX, 0f, 1f));
+            root["RoiY"] = new JValue(Clamp(roiY, 0f, 1f));
+            root["RoiW"] = new JValue(Clamp(roiW, 0.01f, 1f));
+            root["RoiH"] = new JValue(Clamp(roiH, 0.01f, 1f));
+
+            return root.ToString(Newtonsoft.Json.Formatting.Indented);
         }
 
         private static float Clamp(float v, float min, float max)
