@@ -54,6 +54,7 @@ YoloDetector/
    - **`Get-Content | Set-Content` 组合同样会炸**（v2.2 实际再踩一次）：Get-Content 不带 -Encoding 按 ANSI 读 UTF-8 中文，管道替换后写回即永久乱码——即使只是"顺手改个标识符"也不行。若必须用 PowerShell 批量替换，唯一安全姿势是 `[IO.File]::ReadAllText(path, [Text.Encoding]::UTF8)` 读 + `.Replace()` + `[IO.File]::WriteAllText(path, text, [Text.Encoding]::UTF8)` 写，改完立即用铁律 1 的自查命令验证。
    - 新增/修改中文文件后自查：`[IO.File]::ReadAllText(path, [Text.Encoding]::UTF8).Contains("预期中文")` 能命中。
 2. **运行配置与数据不混入源码**：`appsettings.json`、`cameraConfigs\*.json`、`Detection\yoloConfig.json`、`Detection\esdConfig.json` 是现场运行配置（阈值、IP、地址模板、静电杆 ROI 标定都靠它们调），`Detection\model\*.onnx` 是模型文件（大二进制）。调试时**不得为图方便把这些文件的值改死后提交**；需要改默认值时同步修改对应的 Configuration 模型类默认值并在响应中说明。
+   - **构建不得重置现场配置（v2.9）**：这些文件经 csproj 的 `CopyRuntimeConfigsIfMissing` Target 复制——**仅当输出目录不存在时才复制**，严禁改回 PreserveNewest（会把 bin 里现场标定的 ROI/阈值/IP 冲掉，v2.9 前实际发生过"重启后标定失效"）。两个实测坑：① Target 内 batching Include 不继承 `RecursiveDir` 通配元数据，Dest 必须在静态 ItemGroup 预计算；② 从 Content 复制切换到自定义 Target 的**第一次构建**，IncrementalClean 会把旧登记文件从 bin 删除（含姿态模型 → ESD 静默降级为纯人员检测，用户实测踩坑），切换后必须立即核对 bin 文件完整性。
 3. **改动后必须构建验证**，禁止交付编译不过的代码。涉及启动/退出的改动加冒烟测试（见下文命令）。
 4. **不主动 commit/push**，除非用户明确要求；提交前先 `git status` + `git diff` 确认只包含预期改动。**`.gitignore` 检查是每次交付的固定动作，不要等用户提醒**：
    - 新增/改动了会周期性产生文件的逻辑（日志、缓存、截图、导出文件）时，先确认对应目录/模式已在 `.gitignore`，没有就补上；
@@ -103,6 +104,7 @@ YoloDetector/
 7. **Mat/Bitmap 释放纪律**：临时 Mat 用 using 或 finally；`ConvertToBgr` 这类"可能返回原对象"的方法，释放前必须 `ReferenceEquals` 判重；新增图像处理代码时逐帧问一遍"这帧谁负责释放"。
 8. **防积压**：视频管线用单槽位缓冲（新帧覆盖旧帧），不要用无限队列；网络请求轮询必须有防重入保护（参照 `CameraController.TryGetStatusAsync` 的 Interlocked 模式）。
 9. **事件订阅/退订必须成对**：长生命周期对象订阅短生命周期对象的事件会阻止 GC 回收（内存泄漏）。本项目做法是控制器统一接线/拆线（`VideoDetectionController.Start/Stop` 内 `+=`/`-=` 成对出现），不要散落在窗体各处。
+10. **native 阻塞调用无法打断时的自愈模式（RtspFrameCapturer 断流自愈实测沉淀）**：FFmpeg `VideoCapture.Read` 在半开 TCP 连接上永久阻塞，且本机构建上**没有任何 native 层超时可依**——① `VideoCapture(url, api, params)` 带 CAP_PROP_OPEN/READ_TIMEOUT 打开即报 "unsupported parameters, Bailout"（连本地文件都打不开）；② `OPENCV_FFMPEG_CAPTURE_OPTIONS` 环境变量经 OS 继承/.NET 进程注入均无效；③ UCRT `_wputenv` 直写也无效。唯一可行解是**应用层看门狗**：捕获线程每轮刷心跳 → 看门狗发现心跳停滞即废弃整条链路（代际号 +1 让僵尸线程苏醒后自杀）、全新实例+线程顶上；VideoCapture 所有权归捕获线程私有（外部永不 Release 可能被卡死线程持有的实例——那会崩溃），卡死线程与其实例作为已知泄漏留给进程退出回收。改帧源前先读类头注释。
 
 ## 性能约定（实测数据沉淀）
 
@@ -122,7 +124,7 @@ YoloDetector/
 | `App/SkBitmapExtensions.cs` | SKBitmap→Drawing.Bitmap 宿主边界转换（Windows 显示专用，约 0.5ms） |
 | `App/CameraController.cs` | 相机连接状态机、防重入状态轮询、拉/推流操作 |
 | `Detection/YoloDetectionService.cs` | 检测管道（Monitor 生产者-消费者、单槽位缓冲、快照事件、有界停止） |
-| `Detection/RtspFrameCapturer.cs` | RTSP 帧捕获（锁保护的 VideoCapture、BGR 统一转换、失败路径零泄漏） |
+| `Detection/RtspFrameCapturer.cs` | RTSP 帧捕获（线程私有 VideoCapture、断流两层自愈：连续失败重连+心跳看门狗强杀重建、失败路径零泄漏） |
 | `Detection/YoloV26Detector.cs` | YOLO 推理：letterbox 预处理、双格式输出解析、NMS、TargetClassIds 过滤 |
 | `Detection/YoloPoseDetector.cs` | YOLO-pose 姿态推理：逐人裁剪扩边→17关键点还原；输出布局/动态维自动兼容 |
 | `Detection/EsdContactAnalyzer.cs` | 静电杆接触状态机（手腕落区+持续时长认定+宽限保持+轨迹跟踪）；仅检测线程串行调用 |

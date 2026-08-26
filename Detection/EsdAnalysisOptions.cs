@@ -29,8 +29,10 @@ namespace YoloDetection
         /// <summary>
         /// 判定容差（像素）：手腕点到 ROI 外扩该距离以内也算命中。
         /// 关键点回归存在几像素抖动，紧贴杆沿的触摸动作靠它兜住。
+        /// v2.9 默认 20→40：手腕关键点定在腕关节，与手掌接触点天然相差几厘米，
+        /// 小容差会导致擦边不命中（现场实测反馈）。
         /// </summary>
-        public float MarginPx { get; set; } = 20f;
+        public float MarginPx { get; set; } = 40f;
 
         // ---------- 触摸判定状态机 ----------
 
@@ -48,9 +50,11 @@ namespace YoloDetection
 
         /// <summary>
         /// 手腕关键点置信度阈值：低于该值的手腕坐标不可信，不参与命中判定。
-        /// 与 IPoseDetector.KeyPointConfidenceThreshold 保持一致即可。
+        /// v2.9 默认 0.35→0.25：人在画面边缘时人体不完整，姿态模型对手腕的置信度
+        /// 实测掉到 0.16~0.44（完整人体 0.6~0.98），高阈值会把边缘场景全部拒之门外；
+        /// 低质量点的误报由 Hold 时长 + ROI 容差双重过滤兜底。
         /// </summary>
-        public float WristConfidenceThreshold { get; set; } = 0.35f;
+        public float WristConfidenceThreshold { get; set; } = 0.25f;
 
         // ---------- 跟踪 ----------
 

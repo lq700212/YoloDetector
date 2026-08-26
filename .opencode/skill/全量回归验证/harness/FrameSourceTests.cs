@@ -23,6 +23,7 @@ namespace YoloDetector.Tests
             T.Case("帧源-空地址抛参数异常", Start_EmptyUrl);
             T.Case("帧源-拒绝连接的地址返回false", Start_RefusedAddress);
             T.Case("帧源-视频文件流出帧与停止", Start_FileSource);
+            T.Case("帧源-断流自动重连(文件EOF模拟)", ReconnectOnEof);
             T.Case("帧源-无订阅者时不泄漏", NoSubscriberSafe);
         }
 
@@ -116,6 +117,52 @@ namespace YoloDetector.Tests
                     int before = frames;
                     Thread.Sleep(200);
                     T.Eq(before, frames, "Stop 后不再出帧");
+                }
+            }
+            finally
+            {
+                if (File.Exists(videoPath))
+                {
+                    File.Delete(videoPath);
+                }
+            }
+        }
+
+        /// <summary>
+        /// v2.8 断流自愈链路：视频文件播完 EOF 后 Read 持续返回 false，与真实 RTSP
+        /// 半开断流走同一条"连续失败→自动 Reopen"路径（文件重开后从头再播）。
+        /// 若无重连机制帧数会永远停在 30；能继续增长即证明自愈生效。
+        /// </summary>
+        private static void ReconnectOnEof()
+        {
+            string videoPath = CreateTestVideo();
+            if (videoPath == null)
+            {
+                T.Info("本机无法生成 MJPG 视频，用例降级为跳过（不影响判定）");
+                return;
+            }
+
+            try
+            {
+                using (var capturer = new RtspFrameCapturer())
+                {
+                    int frames = 0;
+                    capturer.FrameReady += (s, mat) =>
+                    {
+                        Interlocked.Increment(ref frames);
+                        mat.Dispose(); // 订阅者按契约释放
+                    };
+
+                    T.True(capturer.Start(videoPath), "视频文件应能作为流源打开");
+
+                    // 视频仅 30 帧(2 秒播完)；EOF 后 30 次×50ms 判定断流再重开 ≈ 第 31 帧
+                    // 预计 4~5 秒内到达，15 秒窗口留足余量（含 FFmpeg 打开耗时）
+                    T.True(T.WaitFor(() => Volatile.Read(ref frames) > 30, 15000),
+                        "EOF 后应自动重连并继续出帧(>30), 实际=" + frames);
+                    T.True(capturer.IsRunning, "重连后应仍处于运行态");
+
+                    capturer.Stop();
+                    T.False(capturer.IsRunning, "自愈后 Stop 仍应干净退出");
                 }
             }
             finally

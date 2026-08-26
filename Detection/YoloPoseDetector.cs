@@ -46,10 +46,16 @@ namespace YoloDetection
         public int MaxPersonsPerFrame { get; set; } = 8;
 
         /// <summary>
-        /// 人体框扩边比例（相对框宽高）。裁剪过紧会导致贴边的肩/腕关键点丢失，
-        /// 默认四周各扩 15% 后再裁剪。
+        /// 人体框扩边比例（相对框宽高）。裁剪过紧会导致贴边的肩/腕关键点丢失。
+        ///
+        /// v2.8 由 0.15 提升到 0.30：实测 YOLO 人体框收紧在躯干，工人伸手指向
+        /// 静电杆/茶杯时手臂常伸出框外 20%~40%，扩边 15% 时手腕根本不在裁剪图里，
+        /// 姿态推理看不到手 → 手腕关键点置信度低被过滤 → 触摸判定失效
+        /// （表现为"人手摸了 ROI 但框不变绿、无日志"）。
+        /// v2.9 由 0.30 提升到 0.35：人在画面边缘/贴近摄像头时手臂出框比例更大。
+        /// 不建议超过 0.5：裁剪图里混入第二个人后 top1 候选可能取错目标。
         /// </summary>
-        public float CropExpandRatio { get; set; } = 0.15f;
+        public float CropExpandRatio { get; set; } = 0.35f;
 
         public bool IsInitialized => _session != null;
 

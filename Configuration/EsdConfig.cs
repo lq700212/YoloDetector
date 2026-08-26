@@ -25,9 +25,15 @@ namespace YoloDetector.Configuration
         [JsonProperty("PoseModelPath")]
         public string PoseModelPath { get; set; } = "Detection/model/yolo11n-pose.onnx";
 
-        /// <summary>手腕关键点置信度阈值（0-1）：低于该值的手腕坐标不参与判定</summary>
+        /// <summary>
+        /// 手腕关键点置信度阈值（0-1）：低于该值的手腕坐标不参与判定。
+        /// v2.9 默认 0.35→0.25：人在画面边缘时人体不完整（半身出画），姿态模型对
+        /// 手腕的置信度实测会掉到 0.16~0.44（完整人体为 0.6~0.98），0.35 阈值会把
+        /// 边缘场景全部拒之门外；降到 0.25 后低质量点由"持续 Hold 时长 + 小 ROI
+        /// 容差"双重过滤兜底（坐标抖动的点难以连续 1 秒稳定落在判定区内）。
+        /// </summary>
         [JsonProperty("WristConfidenceThreshold")]
-        public float WristConfidenceThreshold { get; set; } = 0.35f;
+        public float WristConfidenceThreshold { get; set; } = 0.25f;
 
         // ---------- 静电杆 ROI（归一化坐标，现场按摄像头画面标定） ----------
 
@@ -47,15 +53,24 @@ namespace YoloDetector.Configuration
         [JsonProperty("RoiH")]
         public float RoiH { get; set; } = 0.35f;
 
-        /// <summary>判定容差（像素）：手腕点到 ROI 外扩该距离以内也算命中</summary>
+        /// <summary>
+        /// 判定容差（像素）：手腕点到 ROI 外扩该距离以内也算命中。
+        /// v2.9 默认 20→40：姿态模型的手腕关键点定在腕关节，而人手接触静电杆/杯体时
+        /// 接触部位是手掌——腕点与接触点天然相差几厘米，小容差会导致"明明摸着却擦边
+        /// 不命中"。现场可按摄像头距离微调：误报多就调小，摸了不报就调大。
+        /// </summary>
         [JsonProperty("MarginPx")]
-        public float MarginPx { get; set; } = 20f;
+        public float MarginPx { get; set; } = 40f;
 
         // ---------- 触摸判定时序 ----------
 
-        /// <summary>持续命中时长阈值（毫秒）：达到才算"正在触摸"，过滤路人扫过</summary>
+        /// <summary>
+        /// 持续命中时长阈值（毫秒）：达到才算"正在触摸"，过滤路人扫过。
+        /// v2.9 默认 1500→1000：现场反馈 1.5 秒体感偏钝；1 秒响应更跟手，
+        /// 仍能过滤一晃而过的手（扫过 ROI 通常不足 0.5 秒）。误报多可调回 1500。
+        /// </summary>
         [JsonProperty("HoldDurationMs")]
-        public double HoldDurationMs { get; set; } = 1500;
+        public double HoldDurationMs { get; set; } = 1000;
 
         /// <summary>释放宽限（毫秒）：短暂遮挡/抖动不断开已建立的接触状态</summary>
         [JsonProperty("ReleaseGraceMs")]

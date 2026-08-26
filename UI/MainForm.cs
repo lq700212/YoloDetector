@@ -358,6 +358,21 @@ namespace YoloDetector.UI
                 AddLog("正在启动视频预览...");
                 AddLog("RTSP流地址: " + rtspUrl);
 
+                // 静电杆触摸检测：打印本次预览实际加载的标定值。
+                // 现场"第一次打开摸杆无反应"时先看这行——确认加载的 ROI 与实际杆位置
+                // 是否对得上（此前启动不打印 ROI，无法区分"没加载"和"位置偏差"）
+                if (AppConfig.Esd.Enabled)
+                {
+                    var esd = AppConfig.Esd;
+                    AddLog(string.Format(
+                        "静电杆触摸检测已启用: ROI=X={0:F3} Y={1:F3} W={2:F3} H={3:F3} 容差={4:F0}px 持续={5:F0}ms（预览中拖拽框选可实时调整）",
+                        esd.RoiX, esd.RoiY, esd.RoiW, esd.RoiH, esd.MarginPx, esd.HoldDurationMs));
+                }
+                else
+                {
+                    AddLog("静电杆触摸检测未启用（esdConfig.json Enabled=false）");
+                }
+
                 EnsureVideoController();
 
                 var options = new DetectionStartupOptions

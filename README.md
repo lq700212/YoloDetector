@@ -86,6 +86,8 @@ dotnet build YoloDetector.csproj -v q
 | `Detection\yoloConfig.json` | 模型路径、置信度/NMS 阈值、可视化方案、调试日志开关 |
 | `Detection\esdConfig.json` | 静电杆触摸检测开关、姿态模型路径、ROI 标定、判定时序（见下） |
 
+> **现场配置不会被构建覆盖**：以上运行配置只在输出目录缺失时随构建补齐（首次部署兜底），已存在则一律不动——重新编译/升级代码不会冲掉现场标定的 ROI、阈值与 IP；升级后若发现配置项缺失，删除输出目录里对应 json 再构建一次即可取回新版默认模板。
+
 常用调参（`Detection\yoloConfig.json`）：
 
 ```jsonc
@@ -116,7 +118,7 @@ dotnet build YoloDetector.csproj -v q
   "RoiX": 0.40, "RoiY": 0.25,           // ROI 左上角(归一化)
   "RoiW": 0.20, "RoiH": 0.35,           // ROI 宽高(归一化)
   "MarginPx": 20,                       // 判定容差(像素)，贴边微调用
-  "HoldDurationMs": 1500,               // 持续命中多久才算"正在触摸"
+  "HoldDurationMs": 1000,               // 持续命中多久才算"正在触摸"（越小越灵敏）
   "ReleaseGraceMs": 2000,               // 短暂丢失的宽限期
   "ProcessEveryNFrames": 1,             // CPU 慢可调 2~3(每N帧分析一次)
   "DrawOverlay": true,                  // 预览画面叠加 ROI/状态
@@ -162,8 +164,8 @@ python tools\download_pose_model.py --export
 
 ## 已知限制
 
-- RTSP 断流后画面冻结（捕获线程持续重试），暂未实现自动重连
-- 网络假死时停止预览可能有数秒等待（锁保护保证不崩溃）
+- RTSP 断流自愈：普通断流（相机重启回 RST、路由回 FIN）约 1.5 秒内自动重连恢复；真·静默半开连接（NAT 表项丢失等）由心跳看门狗在约 15~20 秒内强制重建捕获链路，该极端场景会遗留一个卡死的后台线程（频率极低，进程退出回收）
+- 网络假死时停止预览可能有数秒等待（有界等待保证不崩溃）；启动预览时若相机恰好无响应，打开流可能阻塞较久（历史行为）
 - HIK / DAHUA 品牌客户端尚未实现，工厂会回退到安格华默认实现
 - 静电杆触摸检测为单 ROI 单杆判定（多人同时触摸各自独立跟踪）；跨摄像头联动、报警外发（HTTP/MQTT）尚未实现，可基于 `EsdContactChanged` 事件扩展
 - 姿态推理在纯 CPU 上约 100~200ms/人（1080P 多人场景建议开启 `ProcessEveryNFrames=2~3` 或使用带 GPU 的机器）

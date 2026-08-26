@@ -28,7 +28,7 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 | Detection/YoloDetectionService.cs 的 ESD 旁路 + EsdOverlayRenderer.cs | EsdAnalyzerTests 尾部管道集成用例（事件联动/姿态异常不拖垮主检测/未配置零事件） |
 | Detection/ZoomMapping.cs、RoiSelectionState.cs（随类库迁移） | RoiSelectionTests（Zoom显示矩形居中计算/控件点映射归一化与黑边夹紧/拖拽端到端换算归一化ROI含贴边回收/框选状态机正常流·误触忽略·反向规范化·未按下忽略） |
 | Detection/YoloDetectionService.cs | PipelineTests（线程协议，FakeDetector 驱动） |
-| Detection/RtspFrameCapturer.cs | FrameSourceTests（视频文件流 + 拒绝连接） |
+| Detection/RtspFrameCapturer.cs | FrameSourceTests（视频文件流 + 拒绝连接 + 断流自动重连(文件EOF驱动连续失败→Reopen路径)） |
 | App/VideoDetectionController.cs | EndToEndTests（端到端全链路 + ESD旁路装配/姿态模型缺失自动降级） |
 | App/CameraController.cs、CameraApiFactory.cs | CameraControllerTests（未连接契约/工厂） |
 | Cameras/AngehuaCameraApiClient.cs、DeviceStatus.cs | AngehuaClientTests（快速失败/有界超时/桩契约/使用率计算） |
@@ -49,7 +49,9 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 │   ├── Run-AllTests.ps1          ★ 总入口：一键全流程
 │   ├── Invoke-Harness.ps1        构建+运行进程内 harness
 │   ├── Invoke-SmokeTest.ps1      GUI 进程级冒烟
-│   └── Invoke-RoiDragVisualCheck.ps1  ROI 拖拽标定目检探针（STA 反射驱动框选+截图，人工目检用）
+│   ├── Invoke-RoiDragVisualCheck.ps1  ROI 拖拽标定目检探针（STA 反射驱动框选+截图，人工目检用）
+│   ├── EsdLiveProbe.csproj        静电触摸真机全链路诊断探针（手动：需真实 RTSP 相机，两阶段验证判定链路+roi_check.png 目检）
+│   └── EsdLiveProbe.cs            ↑ 探针源码（构建输出落主 bin，运行后清理产物）
 └── harness/
     ├── YoloDetector.Tests.csproj net472/x64，输出重定向到主 bin
     ├── TestFramework.cs          微型断言框架 T + FakeDetector + TestUtil

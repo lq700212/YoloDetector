@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 真机 ESD 全链路诊断探针：输出到主 bin（BaseDirectory=bin，现场配置/模型相对路径全部生效）。
+       用后即删，不入库；可复用的结论沉淀进 harness。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>EsdProbe</AssemblyName>
+    <OutputPath>E:\Project\YoloDetector\bin\Debug\net472\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="YoloDetector"><HintPath>E:\Project\YoloDetector\bin\Debug\net472\YoloDetector.exe</HintPath></Reference>
+    <Reference Include="YoloDetector.Detection"><HintPath>E:\Project\YoloDetector\bin\Debug\net472\YoloDetector.Detection.dll</HintPath></Reference>
+    <Reference Include="OpenCvSharp"><HintPath>E:\Project\YoloDetector\bin\Debug\net472\OpenCvSharp.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

@@ -49,23 +49,36 @@
     <None Remove="Detection\bin\**" />
     <None Remove="Detection\obj\**" />
   </ItemGroup>
-  <!-- 配置文件复制：编译时自动复制到输出目录 -->
+  <!-- 配置文件复制策略（v2.8 起）：运行配置属于现场资产——静电杆 ROI 标定、阈值、IP
+       都由现场在输出目录上调整，重新构建不得重置（此前 PreserveNewest 会在源码版配置
+       mtime 更新时覆盖 bin 里的现场标定，导致"重启后 ROI 标定失效"）。故改为：
+       仅当输出目录不存在该文件时才复制（首次部署兜底），已存在则一律不动。
+       模型文件（Detection\model\**）不在此列：保持 PreserveNewest，缺失时随构建补齐。
+       注意 Dest 必须在静态 ItemGroup 里预计算——Target 内的 batching Include 不继承
+       RecursiveDir 等通配元数据，会把 Detection\ 子目录丢掉（实测踩坑）。 -->
   <ItemGroup>
-    <None Update="appsettings.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <RuntimeConfigSource Include="appsettings.json">
+      <Dest>$(OutDir)appsettings.json</Dest>
+    </RuntimeConfigSource>
+    <RuntimeConfigSource Include="Detection\*.json">
+      <Dest>$(OutDir)Detection\%(Filename)%(Extension)</Dest>
+    </RuntimeConfigSource>
+    <RuntimeConfigSource Include="cameraConfigs\**\*.json">
+      <Dest>$(OutDir)cameraConfigs\%(Filename)%(Extension)</Dest>
+    </RuntimeConfigSource>
   </ItemGroup>
-  <!-- 品牌配置文件复制：仅复制 .json 文件 -->
+  <Target Name="CopyRuntimeConfigsIfMissing" AfterTargets="Build">
+    <Copy SourceFiles="@(RuntimeConfigSource)"
+          DestinationFiles="%(RuntimeConfigSource.Dest)"
+          Condition="!Exists(%(RuntimeConfigSource.Dest))" />
+  </Target>
+  <!-- 品牌配置/检测配置的声明保留 VS 解决方案资源管理器可见性，但不参与自动复制 -->
   <ItemGroup>
-    <Content Include="cameraConfigs\**\*.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <Content Include="cameraConfigs\**\*.json" CopyToOutputDirectory="Never" />
+    <Content Include="Detection\*.json" CopyToOutputDirectory="Never" />
   </ItemGroup>
-  <!-- 检测模块配置与模型文件复制 -->
+  <!-- 检测模块模型文件复制：缺失时随构建补齐（大二进制现场不改，覆盖无害） -->
   <ItemGroup>
-    <Content Include="Detection\*.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <Content Include="Detection\model\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

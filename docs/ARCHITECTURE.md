@@ -43,7 +43,8 @@ RTSP 网络摄像头接入 → OpenCV 逐帧捕获 → YOLO(ONNX) 推理检测�
 | 线程 | 所属 | 职责 |
 | --- | --- | --- |
 | UI 线程 | MainForm | 界面、定时器轮询（5s）、显示帧 |
-| RTSP 捕获线程 | RtspFrameCapturer.CaptureLoop | 锁内 `_capture.Read` → BGR 统一转换 → 克隆后经 FrameReady 发布 |
+| RTSP 捕获线程 | RtspFrameCapturer.CaptureLoop | 私有 VideoCapture 上 `Read` → BGR 统一转换 → 克隆后经 FrameReady 发布；每轮刷新心跳，连续读失败按原地址重建流 |
+| RTSP 看门狗 (Timer) | RtspFrameCapturer.WatchdogTick | 心跳停滞超 15s 判定线程卡死（静默半开连接）→ 废弃当前代际、全新实例+线程顶上 |
 | YOLO 检测线程 | YoloDetectionService.DetectionLoop | 取帧 → 推理 → 后处理 → 快照事件 → 可视化 → 帧事件 |
 
 关键机制：
@@ -52,6 +53,7 @@ RTSP 网络摄像头接入 → OpenCV 逐帧捕获 → YOLO(ONNX) 推理检测�
 - **Monitor.Wait/Pulse 信号协议**：检测线程无帧时挂起（零 CPU）；禁用 AutoResetEvent/SemaphoreSlim——WaitHandle 在线程未退出时 Dispose 会产生 ObjectDisposedException 竞态（v1 实际崩溃过）。
 - **停止协议**：`volatile/锁内置位 → Monitor.PulseAll → 有界 Join(3~10s)`。Join 超时绝不销毁线程依赖的资源，让其自行退出；下次 Start 会先等旧线程退出，保证任何时刻最多一个检测线程。
 - **后台异常零逃逸**：两个工作循环整体 try/catch，记录日志继续运行。
+- **断流自愈**：捕获线程私有 VideoCapture（外部永不 Release，防"卡在 native Read 时被外部释放"崩溃）；普通断流走"连续失败→Reopen"，静默半开（Read 永久挂起，本机 FFmpeg 构建无超时可依）由看门狗代际更替兜底，僵尸线程苏醒后自杀并释放自己的实例。
 
 ## 3. Mat 所有权链路（内存不泄漏的关键）
 
@@ -121,8 +123,8 @@ w' = w_model * scaleX;             h' = h_model * scaleY;             // 仅中�
 
 ## 6. 已知限制（后续可改进项）
 
-- **RTSP 断流无自动重连**：流中断后捕获线程持续空转重试（Read 失败 sleep 50ms），画面冻结但不崩溃；需要重连机制时在 `RtspFrameCapturer` 内实现。
-- **停止预览可能短暂阻塞 UI**：网络假死时 FFmpeg Read 阻塞数秒，Stop 的锁保护会等它结束（保证不崩溃不泄漏）。如需优化可做后台异步停止 + UI 即时反馈。
+- **静默半开断流的强杀重建会遗留僵尸线程**：普通断流约 1.5 秒自动重连；真·静默半开（Read 永久挂起）由看门狗在约 15~20 秒强制重建，被废弃的线程与其 VideoCapture 在其苏醒前无法安全释放（native 无法打断），作为已知泄漏留给进程退出回收。
+- **启动预览撞上无响应地址可能阻塞较久**：Start 的 Open 同步执行（保持"失败立即返回 false"契约），FFmpeg 内部握手/重试无超时；如需优化可改异步打开 + UI "连接中"状态。
 - **每帧 BeginInvoke 显示无节流**：25fps 下 UI 来得及消费；若将来卡顿可在控制器加 in-flight 计数丢帧策略。
 - HIK/DAHUA 品牌客户端未实现（工厂回退到 Angehua 实现），扩展方式见 `Cameras/ICameraApi.cs` 注释。
 
