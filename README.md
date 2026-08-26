@@ -159,7 +159,7 @@ python tools\download_pose_model.py --export
 | [docs/技术分享-人员检测与人手动作检测实现详解.md](docs/技术分享-人员检测与人手动作检测实现详解.md) | 面向小白的原理讲解：人员检测五步流水线、姿态关键点+接触状态机、两级叠加绘制、多线程/内存/性能工程细节、FAQ（技术分享会材料） |
 | [docs/MODULE.md](docs/MODULE.md) | 检测模块接入指南：最小示例、静电杆 ROI 拖拽标定傻瓜接入、接口扩展点、离线部署清单 |
 | [docs/ONNX模型获取指南.md](docs/ONNX模型获取指南.md) | 换模型时的下载与 pt→onnx 转换操作手册 |
-| [.opencode/skill/全量回归验证/](.opencode/skill/全量回归验证/SKILL.md) | 一键回归验证 skill：构建 + 112 个进程内回归用例 + GUI 冒烟（`Run-AllTests.ps1`），含模块↔用例对账表 |
+| [.opencode/skill/全量回归验证/](.opencode/skill/全量回归验证/SKILL.md) | 一键回归验证 skill：构建 + 121 个进程内回归用例 + GUI 冒烟（`Run-AllTests.ps1`），含模块↔用例对账表 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本改动记录 |
 
 ## 已知限制

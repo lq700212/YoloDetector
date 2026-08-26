@@ -45,6 +45,14 @@ namespace YoloDetector.Tests
             T.Case("ESD-宽限期内丢失保持接触", Grace_KeepsContact);
             T.Case("ESD-超宽限清零退出并触发结束事件", Grace_Expired);
             T.Case("ESD-低置信度手腕不参与判定", LowConfidenceWrist);
+            T.Case("ESD-双手合拢兜底命中(腕置信崩塌)", OverlapHandsFallbackHit);
+            T.Case("ESD-双手分开低置信不走兜底", OverlapApartNoFallback);
+            T.Case("ESD-合拢但中点不在ROI不命中", OverlapOutsideRoiNoHit);
+            T.Case("ESD-合拢但肘点不可信不命中", OverlapElbowNotTrusted);
+            T.Case("ESD-指尖点触外推命中", FingertipReachHit);
+            T.Case("ESD-手臂背离ROI外推不误判", FingertipAwayNoHit);
+            T.Case("ESD-肘点低置信不外推", FingertipElbowLowNoHit);
+            T.Case("ESD-腕点低置信不外推", FingertipWristLowNoHit);
             T.Case("ESD-Margin容差内贴边命中", MarginTolerance);
             T.Case("ESD-左右手腕任一命中即命中", EitherWristCounts);
             T.Case("ESD-轨迹遗忘后重新计时换TrackId", TrackForget);
@@ -96,6 +104,32 @@ namespace YoloDetector.Tests
         private static List<PoseResult> SinglePose(float lx, float ly, float lc, float rx, float ry, float rc)
         {
             return new List<PoseResult> { PoseWithWrists(lx, ly, lc, rx, ry, rc) };
+        }
+
+        /// <summary>
+        /// 造一份腕点+肘点全可控的姿态结果（双手合拢/指尖外推用例专用）：
+        /// 腕/肘四点坐标与置信度按参数设置，其余关键点放远处低置信度避免干扰。
+        /// </summary>
+        private static PoseResult PoseWristsElbows(
+            float lx, float ly, float lc, float rx, float ry, float rc,
+            float leConf, float reConf,
+            float leX = -2000, float leY = -2000, float reX = -2000, float reY = -2000)
+        {
+            var pose = new PoseResult();
+            for (int i = 0; i < CocoKeyPointIndexes.TotalCount; i++)
+            {
+                if (i == CocoKeyPointIndexes.LeftWrist)
+                    pose.Keypoints.Add(new PoseKeypoint { X = lx, Y = ly, Confidence = lc });
+                else if (i == CocoKeyPointIndexes.RightWrist)
+                    pose.Keypoints.Add(new PoseKeypoint { X = rx, Y = ry, Confidence = rc });
+                else if (i == CocoKeyPointIndexes.LeftElbow)
+                    pose.Keypoints.Add(new PoseKeypoint { X = leX, Y = leY, Confidence = leConf });
+                else if (i == CocoKeyPointIndexes.RightElbow)
+                    pose.Keypoints.Add(new PoseKeypoint { X = reX, Y = reY, Confidence = reConf });
+                else
+                    pose.Keypoints.Add(new PoseKeypoint { X = -1000, Y = -1000, Confidence = 0.9f });
+            }
+            return pose;
         }
 
         private static List<DetectionResult> SinglePerson()
@@ -255,12 +289,158 @@ namespace YoloDetector.Tests
         {
             var analyzer = new EsdContactAnalyzer(MakeOptions());
             var persons = SinglePerson();
-            // 坐标在 ROI 正中但置信度 0.2 < 0.35 → 不可信
-            var lowConf = SinglePose(500, 280, 0.2f, 500, 280, 0.1f);
+            // 坐标在 ROI 正中但置信度 0.2 < 0.35 → 不可信。
+            // 注意双腕必须分开（距离>40px）：双腕重合会触发 v2.9 双手合拢兜底
+            // （中点在 ROI + 肘点高置信 → 命中），那是另一个用例的职责
+            var lowConf = SinglePose(500, 280, 0.2f, 700, 280, 0.1f);
 
             var s = analyzer.Update(persons, lowConf, 1000, 800, 0).Persons[0];
             T.False(s.LeftWristInZone && s.RightWristInZone, "低置信度手腕不得判落区");
             T.False(s.InContact, "全程不可信手腕不得进入接触");
+        }
+
+        // ---------- v2.9 双手合拢兜底（真机实测：双手交叠扶杆时双腕置信度同时崩到
+        // 0.03~0.10，常规判定双腕全灭 → 双手摸反而不灵敏；兜底=交叠特征+中点落区+肘点验证） ----------
+
+        /// <summary>双腕重合、置信度崩塌(0.05/0.08)、但中点在 ROI 且肘点可信 → 兜底命中并可持续进接触态</summary>
+        private static void OverlapHandsFallbackHit()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var persons = SinglePerson();
+
+            // 模拟真机崩塌帧：双腕同点 (500,280)（ROI 正中），置信度 0.05/0.08，
+            // 肘点置信度 0.6/0.5（真机实测交叠时肘点 0.55~0.77）
+            var collapsed = new List<PoseResult>
+            {
+                PoseWristsElbows(500, 280, 0.05f, 500, 280, 0.08f, 0.6f, 0.5f)
+            };
+
+            var s = analyzer.Update(persons, collapsed, 1000, 800, 0).Persons[0];
+            T.True(s.LeftWristInZone, "双手合拢兜底: 左腕应判落区");
+            T.True(s.RightWristInZone, "双手合拢兜底: 右腕应判落区");
+
+            // 兜底命中应能像常规命中一样累计并进入接触态（Hold=1500ms）
+            analyzer.Update(persons, collapsed, 1000, 800, 800);
+            T.True(analyzer.Update(persons, collapsed, 1000, 800, 1600).Persons[0].InContact,
+                "双手合拢兜底持续命中应进入接触态");
+        }
+
+        /// <summary>双腕距离远（未交叠）且置信度低 → 不得走兜底，保持不命中</summary>
+        private static void OverlapApartNoFallback()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var persons = SinglePerson();
+
+            // 左腕 ROI 内、右腕 ROI 外，距离 200px > 40px，双腕置信度崩塌
+            var apart = new List<PoseResult>
+            {
+                PoseWristsElbows(500, 280, 0.05f, 700, 280, 0.08f, 0.6f, 0.5f)
+            };
+
+            var s = analyzer.Update(persons, apart, 1000, 800, 0).Persons[0];
+            T.False(s.LeftWristInZone, "未交叠时低置信左腕不得判落区");
+            T.False(s.RightWristInZone, "未交叠时低置信右腕不得判落区");
+            T.False(s.InContact, "未交叠低置信不得进入接触");
+        }
+
+        /// <summary>双腕交叠但中点在 ROI 容差之外 → 兜底不得命中</summary>
+        private static void OverlapOutsideRoiNoHit()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var persons = SinglePerson();
+
+            // ROI 右缘 x=600 + margin20 = 620；交叠点 (750,600) 在 ROI 外
+            var outside = new List<PoseResult>
+            {
+                PoseWristsElbows(750, 600, 0.05f, 750, 600, 0.08f, 0.6f, 0.5f)
+            };
+
+            var s = analyzer.Update(persons, outside, 1000, 800, 0).Persons[0];
+            T.False(s.LeftWristInZone, "合拢但中点在 ROI 外: 不得判落区");
+            T.False(s.InContact, "合拢但中点在 ROI 外: 不得进入接触");
+        }
+
+        /// <summary>双腕交叠、中点在 ROI 内，但双肘置信度都不可信 → 兜底不得命中（防垂手误判）</summary>
+        private static void OverlapElbowNotTrusted()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var persons = SinglePerson();
+
+            var noElbow = new List<PoseResult>
+            {
+                PoseWristsElbows(500, 280, 0.05f, 500, 280, 0.08f, 0.1f, 0.2f)
+            };
+
+            var s = analyzer.Update(persons, noElbow, 1000, 800, 0).Persons[0];
+            T.False(s.LeftWristInZone, "肘点不可信: 兜底不得判落区");
+            T.False(s.InContact, "肘点不可信: 兜底不得进入接触");
+        }
+
+        // ---------- v2.9 指尖点触外推（真机实测：人在视野边缘手臂伸直用指尖点杆时，
+        // 腕关节离接触点 20~40cm，远超 MarginPx 容差 → 常规判定够不着）。
+        // 外推点 = 腕 + (腕-肘)×0.5；MakeOptions ROI 像素 x∈[400,600] y∈[160,400] margin=20。 ----------
+
+        /// <summary>手臂伸直指向 ROI：腕点在容差外但外推手部点落区 → 命中</summary>
+        private static void FingertipReachHit()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var persons = SinglePerson();
+
+            // 肘(170,300)→腕(320,280)：外推点 = (320+150×0.5, 280-20×0.5) = (395,270)，
+            // 落在 ROI+margin 内(x≥380)；腕点 320 < 380 常规判定不命中——只有外推能救
+            var reach = new List<PoseResult>
+            {
+                PoseWristsElbows(320, 280, 0.7f, 900, 500, 0.1f, 0.8f, 0.1f, leX: 170, leY: 300)
+            };
+
+            var s = analyzer.Update(persons, reach, 1000, 800, 0).Persons[0];
+            T.True(s.LeftWristInZone, "指尖点触: 外推手部点落区应判命中");
+        }
+
+        /// <summary>前臂方向背离 ROI：外推点远离 → 不得误判（防"手在旁边晃"误报）</summary>
+        private static void FingertipAwayNoHit()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var persons = SinglePerson();
+
+            // 肘(450,500)→腕(320,280)：外推点 = (320-65, 280-110) = (255,170)，远离 ROI
+            var away = new List<PoseResult>
+            {
+                PoseWristsElbows(320, 280, 0.7f, 900, 500, 0.1f, 0.8f, 0.1f)
+            };
+
+            var s = analyzer.Update(persons, away, 1000, 800, 0).Persons[0];
+            T.False(s.LeftWristInZone, "手臂背离 ROI: 外推点不在区内不得命中");
+        }
+
+        /// <summary>肘点低置信：外推方向不可信 → 不得命中</summary>
+        private static void FingertipElbowLowNoHit()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var persons = SinglePerson();
+
+            var lowElbow = new List<PoseResult>
+            {
+                PoseWristsElbows(320, 280, 0.7f, 900, 500, 0.1f, 0.1f, 0.1f)
+            };
+
+            var s = analyzer.Update(persons, lowElbow, 1000, 800, 0).Persons[0];
+            T.False(s.LeftWristInZone, "肘点不可信: 不得外推判命中");
+        }
+
+        /// <summary>腕点低置信：锚点不可信 → 不得外推判命中</summary>
+        private static void FingertipWristLowNoHit()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var persons = SinglePerson();
+
+            var lowWrist = new List<PoseResult>
+            {
+                PoseWristsElbows(320, 280, 0.1f, 900, 500, 0.1f, 0.8f, 0.1f)
+            };
+
+            var s = analyzer.Update(persons, lowWrist, 1000, 800, 0).Persons[0];
+            T.False(s.LeftWristInZone, "腕点不可信: 不得外推判命中");
         }
 
         private static void MarginTolerance()
@@ -280,8 +460,7 @@ namespace YoloDetector.Tests
         }
 
         private static void EitherWristCounts()
-        {
-            var analyzer = new EsdContactAnalyzer(MakeOptions());
+        {            var analyzer = new EsdContactAnalyzer(MakeOptions());
             var persons = SinglePerson();
             // 左手在 ROI 外、右手在 ROI 内
             var onlyRight = SinglePose(50, 50, 0.9f, 500, 280, 0.9f);

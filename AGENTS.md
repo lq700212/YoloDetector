@@ -166,7 +166,7 @@ else { $proc.CloseMainWindow() | Out-Null; if ($proc.WaitForExit(8000)) { "PASS:
 ```
 
 - 成功标准：输出 `bin\Debug\net472\YoloDetector.exe`，退出码 0；日志文件出现配对的"程序启动/程序退出"标记。
-- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：112 用例 harness 覆盖配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理/姿态检测器/静电接触状态机与叠加渲染/管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
+- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：121 用例 harness 覆盖配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理/姿态检测器/静电接触状态机与叠加渲染/管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
 - 涉及检测算法的改动，除跑 skill 外再用本地图片直接喂 `YoloV26Detector.Detect(Mat)` 做对照验证，确保坐标映射/过滤行为不变。
 - **界面像素级 bug（竖线/颜色/叠色/裁剪/滚动条）**：调用技能 `winforms-ui-debug`（独立 harness 直 new 目标窗体 + PrintWindow 截图 + 像素扫描定位根因）。
 - **调试完自动沉淀技能**：用 `winforms-ui-debug` 或其他套路排查成功后，主动把可复用的新踩坑/新探针回写到对应 SKILL.md 与本文件。

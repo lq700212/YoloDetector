@@ -10,9 +10,15 @@ namespace YoloDetection
     /// 判定模型（纯几何规则，不依赖额外模型，行为完全可解释可调参）：
     ///   1. 命中：左手腕或右手腕的关键点置信度 ≥ WristConfidenceThreshold，
     ///      且坐标落在静电杆 ROI（外扩 MarginPx 容差）内 → 该人本帧"命中"；
-    ///   2. 认定：命中持续累计 ≥ HoldDurationMs → 进入 InContact 接触态；
-    ///   3. 保持：接触态下手腕短暂丢失时，ReleaseGraceMs 内不清零不降级（防遮挡抖动）；
-    ///   4. 结束：离开宽限期后退出接触态并清零累计；人消失超过 TrackForgetMs 后轨迹删除。
+    ///   2. 指尖点触：沿"肘→腕"方向外推半个前臂长得到虚拟手部点，外推点落
+    ///      ROI 内同样算命中（肘腕两点置信度都达标才外推，保证方向可信）——
+    ///      覆盖"手臂伸直用指尖点杆"（腕点离接触点 20~40cm）的场景；
+    ///   3. 兜底：双手合拢（左右腕距离&lt;40px）时模型对两腕置信度会同时崩塌
+    ///      （实测 0.03~0.10），改用"双腕中点落 ROI + 任一肘点置信度达标"判定，
+    ///      保证双手扶杆/捧杯与单手同样灵敏；
+    ///   4. 认定：命中持续累计 ≥ HoldDurationMs → 进入 InContact 接触态；
+    ///   5. 保持：接触态下手腕短暂丢失时，ReleaseGraceMs 内不清零不降级（防遮挡抖动）；
+    ///   6. 结束：离开宽限期后退出接触态并清零累计；人消失超过 TrackForgetMs 后轨迹删除。
     ///
     /// 跨帧人员关联：按人体框中心点做贪心最近邻匹配（工厂场景人少且移动慢，足够可靠）；
     /// 每个被跟踪的人分配自增 TrackId，供日志与报警关联同一人。
@@ -203,11 +209,25 @@ namespace YoloDetection
                 best.LastMatchedAtMs = nowMs;
 
                 // 手腕落区判定（瞬时值直接覆盖；无有效关键点则两腕均为 false）
-                best.LeftWristInZone = IsWristInZone(pose, CocoKeyPointIndexes.LeftWrist, roi);
-                best.RightWristInZone = IsWristInZone(pose, CocoKeyPointIndexes.RightWrist, roi);
+                best.LeftWristInZone = IsWristInZone(pose, CocoKeyPointIndexes.LeftWrist, roi)
+                    || IsHandTipInZone(pose, CocoKeyPointIndexes.LeftWrist, CocoKeyPointIndexes.LeftElbow, roi);
+                best.RightWristInZone = IsWristInZone(pose, CocoKeyPointIndexes.RightWrist, roi)
+                    || IsHandTipInZone(pose, CocoKeyPointIndexes.RightWrist, CocoKeyPointIndexes.RightElbow, roi);
 
                 // 任一手腕命中即视为本帧命中：刷新命中时间戳 + 置本帧命中标志
                 best.HitThisFrame = best.LeftWristInZone || best.RightWristInZone;
+
+                // 双手合拢兜底（v2.9）：双手交叠扶杆/捧杯时，姿态模型对两个腕点的
+                // 置信度会同时崩塌（实测 0.03~0.10，坐标却大致正确），上面的常规
+                // 判定双腕全灭 → 双手摸反而不灵敏。交叠特征明确（两腕距离很近）
+                // 时改用"中点落区 + 肘点验证"兜底，见方法注释。
+                if (!best.HitThisFrame && IsOverlappingHandsInZone(pose, roi))
+                {
+                    best.LeftWristInZone = true;
+                    best.RightWristInZone = true;
+                    best.HitThisFrame = true;
+                }
+
                 if (best.HitThisFrame)
                 {
                     best.LastHitAtMs = nowMs;
@@ -244,6 +264,89 @@ namespace YoloDetection
             }
 
             return roi.Contains(kpt.X, kpt.Y, _options.MarginPx);
+        }
+
+        /// <summary>
+        /// 指尖点触判定（v2.9）：沿"肘→腕"方向把腕点外推半个前臂长，得到近似
+        /// 手掌/指尖位置，外推点落在 ROI 内即视为接触。
+        ///
+        /// 为什么需要：判定锚点是腕关节，而工人用**指尖**点触静电杆时，腕点离
+        /// 接触点有 20~40cm（手臂伸直），远超 MarginPx 容差——"明明碰到了却不触发"。
+        /// 外推点 = 腕 + (腕-肘) × 0.5：前臂长与"腕到中指尖"长度相近，外推半段
+        /// 前臂恰好覆盖手掌到指尖区域。
+        ///
+        /// 可信度要求：肘、腕两点置信度都达标才外推——方向由两点决定，任一点
+        /// 不可信则外推方向乱指。误报兜底：手臂"指向"ROI 但尚未接触也会命中，
+        /// 需持续 HoldDurationMs 才认定——防静电场景"手臂伸向杆并保持"本身
+        /// 就接近接触语义，宁可灵敏。
+        /// </summary>
+        private bool IsHandTipInZone(PoseResult pose, int wristIndex, int elbowIndex, EsdRoiRect roi)
+        {
+            const float ExtendRatio = 0.5f;
+
+            if (pose == null || !pose.HasKeypoints ||
+                pose.Keypoints.Count <= elbowIndex)
+            {
+                return false;
+            }
+
+            var wrist = pose.Keypoints[wristIndex];
+            var elbow = pose.Keypoints[elbowIndex];
+            if (wrist.Confidence < _options.WristConfidenceThreshold ||
+                elbow.Confidence < _options.WristConfidenceThreshold)
+            {
+                return false;
+            }
+
+            float tipX = wrist.X + (wrist.X - elbow.X) * ExtendRatio;
+            float tipY = wrist.Y + (wrist.Y - elbow.Y) * ExtendRatio;
+            return roi.Contains(tipX, tipY, _options.MarginPx);
+        }
+
+        /// <summary>
+        /// 双手合拢兜底判定（v2.9）：双手交叠扶杆/捧杯时，姿态模型对左右腕的
+        /// 置信度会同时崩塌（实测 0.03~0.10，远低于任何可用阈值），但两个腕点的
+        /// 坐标仍大致正确（模型知道手在哪，只是"不确定是哪只手"）。
+        ///
+        /// 判定条件（三者同时满足）：
+        ///   1. 左右腕距离 &lt; 40px——"双手合拢"的强几何特征；
+        ///   2. 双腕中点落在 ROI 容差内——两个独立给出的坐标互相印证位置；
+        ///   3. 任一肘点置信度达标——肘未被遮挡、识别稳定（实测交叠时 0.55~0.77），
+        ///      验证手臂确实抬起，防止垂手/走动时腕点偶然飘进 ROI 造成误报。
+        ///
+        /// 误报兜底：即使个别帧误判，接触认定还需持续 HoldDurationMs——坐标
+        /// 乱飘的点难以连续 1 秒稳定落在小 ROI 内。
+        /// </summary>
+        private bool IsOverlappingHandsInZone(PoseResult pose, EsdRoiRect roi)
+        {
+            const float OverlapDistPx = 40f;
+
+            if (pose == null || !pose.HasKeypoints ||
+                pose.Keypoints.Count <= CocoKeyPointIndexes.RightElbow)
+            {
+                return false;
+            }
+
+            var lw = pose.Keypoints[CocoKeyPointIndexes.LeftWrist];
+            var rw = pose.Keypoints[CocoKeyPointIndexes.RightWrist];
+            float dx = lw.X - rw.X;
+            float dy = lw.Y - rw.Y;
+            if (dx * dx + dy * dy > OverlapDistPx * OverlapDistPx)
+            {
+                return false; // 双手没有合拢：走常规判定，不走兜底
+            }
+
+            float midX = (lw.X + rw.X) / 2f;
+            float midY = (lw.Y + rw.Y) / 2f;
+            if (!roi.Contains(midX, midY, _options.MarginPx))
+            {
+                return false;
+            }
+
+            var le = pose.Keypoints[CocoKeyPointIndexes.LeftElbow];
+            var re = pose.Keypoints[CocoKeyPointIndexes.RightElbow];
+            return le.Confidence >= _options.WristConfidenceThreshold ||
+                   re.Confidence >= _options.WristConfidenceThreshold;
         }
 
         /// <summary>删除长时间无人匹配的轨迹（人已离开画面；回来会重新计时）。</summary>
