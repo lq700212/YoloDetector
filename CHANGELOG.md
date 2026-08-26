@@ -2,16 +2,6 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
-## v2.9（2026-08-26）现场配置防构建重置（ROI 标定丢失修复）+ 真机 ESD 全链路实证
-
-### 改动范围
-
-**修复"重启后静电杆 ROI 标定失效、手摸无反应"——根因是构建过程破坏现场运行文件，非代码逻辑问题**：
-
-- `YoloDetector.csproj`：运行配置（`appsettings.json`、`Detection\*.json`、`cameraConfigs\**\*.json`）的复制策略从 `PreserveNewest` 改为**"输出目录不存在才复制"**（自定义 Target `CopyRuntimeConfigsIfMissing`）。此前源码版配置的 mtime 一旦比 bin 新（如版本更新改了配置结构），构建就会用默认值**覆盖**现场标定的 ROI/阈值/IP；且 MSBuild `IncrementalClean` 在复制策略切换时还会把 bin 里"不再登记"的文件直接删除——本次实测中 `Detection\esdConfig.json`、`yoloConfig.json` 与姿态模型都曾被清掉，后者导致 ESD 旁路降级为纯人员检测（日志实锤：`[ESD] 静电接触检测启动失败，已降级为纯人员检测: 姿态模型文件缺失！`），表现为"手摸静电杆无日志、无变色"。模型文件保持 `PreserveNewest`（缺失时随构建补齐）。
-- 现场标定 ROI 已从运行日志找回并写回 `bin\...\Detection\esdConfig.json`（X=0.7757 Y=0.2560 W=0.0781 H=0.2262，与 14:39:40 拖拽标定记录一致）。
-- 新增真机诊断探针 `.opencode/skill/全量回归验证/scripts/EsdLiveProbe.*`（手动工具，需真实相机）。
-
 ## v2.9.1（2026-08-26）门状态检测（新功能）+ 触摸判定全姿势适配
 
 > 版本号约定（本次起生效）：同一天的迭代性修改不再递增次版本号，改用修订号（v2.9.1、v2.9.2…）；只有功能级/破坏性变更才递增次版本号。
@@ -71,6 +61,16 @@
 - MSBuild 踩坑沉淀：Target 内 batching Include 不继承 `RecursiveDir` 通配元数据（子目录路径会丢），Dest 须在静态 ItemGroup 预计算；从 Content 复制切换自定义 Target 时 `IncrementalClean` 会清理旧登记文件（切换瞬间会删现场文件，需立即补回）。
 - 首次部署兜底验证：清空 bin 配置后构建自动补齐；二次构建不覆盖现场修改值（均已实测）。
 
+
+## v2.9.0（2026-08-26）现场配置防构建重置（ROI 标定丢失修复）+ 真机 ESD 全链路实证
+
+### 改动范围
+
+**修复"重启后静电杆 ROI 标定失效、手摸无反应"——根因是构建过程破坏现场运行文件，非代码逻辑问题**：
+
+- `YoloDetector.csproj`：运行配置（`appsettings.json`、`Detection\*.json`、`cameraConfigs\**\*.json`）的复制策略从 `PreserveNewest` 改为**"输出目录不存在才复制"**（自定义 Target `CopyRuntimeConfigsIfMissing`）。此前源码版配置的 mtime 一旦比 bin 新（如版本更新改了配置结构），构建就会用默认值**覆盖**现场标定的 ROI/阈值/IP；且 MSBuild `IncrementalClean` 在复制策略切换时还会把 bin 里"不再登记"的文件直接删除——本次实测中 `Detection\esdConfig.json`、`yoloConfig.json` 与姿态模型都曾被清掉，后者导致 ESD 旁路降级为纯人员检测（日志实锤：`[ESD] 静电接触检测启动失败，已降级为纯人员检测: 姿态模型文件缺失！`），表现为"手摸静电杆无日志、无变色"。模型文件保持 `PreserveNewest`（缺失时随构建补齐）。
+- 现场标定 ROI 已从运行日志找回并写回 `bin\...\Detection\esdConfig.json`（X=0.7757 Y=0.2560 W=0.0781 H=0.2262，与 14:39:40 拖拽标定记录一致）。
+- 新增真机诊断探针 `.opencode/skill/全量回归验证/scripts/EsdLiveProbe.*`（手动工具，需真实相机）。
 ## v2.8（2026-08-26）手出框触摸判定修复 + RTSP 断流自愈（防画面冻结）
 
 ### 改动范围
