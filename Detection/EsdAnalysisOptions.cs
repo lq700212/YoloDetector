@@ -69,6 +69,15 @@ namespace YoloDetection
         public bool DrawOverlay { get; set; } = true;
 
         /// <summary>
+        /// 是否为"未接触静电杆"的被跟踪人员绘制灰色整身框（#N NO GND）。
+        /// 默认 false：未触摸是常态，常驻灰框叠在 YOLO 红框上视觉噪音大，
+        /// 且人离开后的宽限残留框容易被误读成"多出一个人"；现场需要目检
+        /// 轨迹跟踪效果或核对 ROI 手腕落区时再临时打开。
+        /// 接触中的绿色 ESD OK 框是关键事件提示，不受本开关影响始终绘制。
+        /// </summary>
+        public bool DrawNoContactBoxes { get; set; } = false;
+
+        /// <summary>
         /// 运行期热更新 ROI（归一化坐标）：非法值就地夹紧，语义与宿主 ToOptions 一致。
         ///
         /// 使用场景：UI 拖拽框选静电杆区域后由宿主调用。本实例被 EsdContactAnalyzer

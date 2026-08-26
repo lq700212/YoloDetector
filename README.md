@@ -1,4 +1,4 @@
-# YoloDetector — 摄像头实时人员检测系统
+﻿# YoloDetector — 摄像头实时人员检测系统
 
 基于 **WinForms (.NET Framework 4.7.2) + OpenCvSharp4 + ONNX Runtime** 的 RTSP 视频流实时目标检测工具：接入网络摄像头，使用 YOLO ONNX 模型对画面逐帧推理，检测结果（检测框 + 类别 + 置信度）实时叠加显示在预览窗口。**推理全程在本机完成，不依赖 Python 环境**。
 
@@ -23,8 +23,11 @@
 | .NET Framework 4.7.2 (C# 7.3, x64) | WinForms 桌面应用 |
 | [OpenCvSharp4](https://github.com/shimat/opencvsharp) 4.10 | RTSP 捕获、图像处理、绘制（已 vendor，离线编译） |
 | [Microsoft.ML.OnnxRuntime](https://github.com/microsoft/onnxruntime) 1.20 | YOLO 模型推理（已 vendor，离线编译） |
-| [SkiaSharp](https://github.com/mono/SkiaSharp) 2.88 | 跨平台位图与绘制后端（检测模块统一使用） |
-| Newtonsoft.Json | 配置序列化 |
+| [SkiaSharp](https://github.com/mono/SkiaSharp) 2.88 | 跨平台位图与绘制后端（检测模块统一使用，已 vendor） |
+| Newtonsoft.Json 13.0.3 | 配置序列化（已 vendor，离线编译） |
+| [SunnyUI](https://github.com/yhuse/SunnyUI) 3.9.8 | WinForms 界面控件库（已 vendor，离线编译） |
+
+> 全部依赖 DLL 均内置仓库 `Detection\libs\`，**编译与运行零 NuGet、零网络**——新机器 `git clone` 后直接构建即可。
 
 ## 项目结构
 
@@ -116,7 +119,8 @@ dotnet build YoloDetector.csproj -v q
   "HoldDurationMs": 1500,               // 持续命中多久才算"正在触摸"
   "ReleaseGraceMs": 2000,               // 短暂丢失的宽限期
   "ProcessEveryNFrames": 1,             // CPU 慢可调 2~3(每N帧分析一次)
-  "DrawOverlay": true                   // 预览画面叠加 ROI/状态
+  "DrawOverlay": true,                  // 预览画面叠加 ROI/状态
+  "DrawNoContactBoxes": false           // true=给未触摸的人画灰色NO GND跟踪框(默认关:画面只保留YOLO红框,有人触摸时才出现绿色ESD OK框;调ROI/查跟踪时临时打开)
 }
 ```
 
@@ -153,7 +157,7 @@ python tools\download_pose_model.py --export
 | [docs/技术分享-人员检测与人手动作检测实现详解.md](docs/技术分享-人员检测与人手动作检测实现详解.md) | 面向小白的原理讲解：人员检测五步流水线、姿态关键点+接触状态机、两级叠加绘制、多线程/内存/性能工程细节、FAQ（技术分享会材料） |
 | [docs/MODULE.md](docs/MODULE.md) | 检测模块接入指南：最小示例、静电杆 ROI 拖拽标定傻瓜接入、接口扩展点、离线部署清单 |
 | [docs/ONNX模型获取指南.md](docs/ONNX模型获取指南.md) | 换模型时的下载与 pt→onnx 转换操作手册 |
-| [.opencode/skill/全量回归验证/](.opencode/skill/全量回归验证/SKILL.md) | 一键回归验证 skill：构建 + 97 个进程内回归用例 + GUI 冒烟（`Run-AllTests.ps1`），含模块↔用例对账表 |
+| [.opencode/skill/全量回归验证/](.opencode/skill/全量回归验证/SKILL.md) | 一键回归验证 skill：构建 + 112 个进程内回归用例 + GUI 冒烟（`Run-AllTests.ps1`），含模块↔用例对账表 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本改动记录 |
 
 ## 已知限制

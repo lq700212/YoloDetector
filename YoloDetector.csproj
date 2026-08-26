@@ -18,8 +18,12 @@
     <ProjectReference Include="Detection\YoloDetector.Detection.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="SunnyUI" Version="3.9.8" />
+    <!-- 全部依赖均 vendor 到 Detection\libs（零 NuGet、克隆即编译，工厂无网环境可用）：
+         SunnyUI/Newtonsoft.Json 原为 NuGet 包，已按 net472/net45 目标复制 DLL 进 libs，
+         传递依赖链为空（SunnyUI→SunnyUI.Common，Newtonsoft.Json(net45) 无依赖） -->
+    <Reference Include="SunnyUI"><HintPath>Detection\libs\SunnyUI.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="SunnyUI.Common"><HintPath>Detection\libs\SunnyUI.Common.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>Detection\libs\Newtonsoft.Json.dll</HintPath><Private>true</Private></Reference>
     <!-- OpenCvSharp/OnnxRuntime 已 vendor 到 Detection\libs（离线编译）；
          native 运行库经类库 csproj 的 None 项流转到本输出目录 -->
     <Reference Include="OpenCvSharp">

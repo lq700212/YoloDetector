@@ -2,6 +2,45 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.7（2026-08-26）未接触灰框默认隐藏（新增 DrawNoContactBoxes 开关）
+
+### 改动范围
+
+**界面优化：预览画面上"未触摸静电杆"人员的灰色 NO GND 整身框改为默认不画**，做成配置开关可随时恢复：
+
+- `Detection/EsdOverlayRenderer.cs`：`DrawNoContactBoxes=false`（新默认）时跳过未接触人员的整身框、"NO GND"标签与手腕落点徽标；接触中的绿色 `ESD OK` 粗框、黄色 ROI 标定框、左下角统计行**不受开关影响始终绘制**
+- `Detection/EsdAnalysisOptions.cs` + `Configuration/EsdConfig.cs`：新增 `DrawNoContactBoxes` 选项（默认 false），经 `ToOptions()` 注入模块
+- `Detection/esdConfig.json`：新增 `"DrawNoContactBoxes": false` 字段与 `_显示` 说明注释
+
+### 为什么这么改
+
+用户反馈画面"时不时有很多灰色边框的框框，看上去怪怪的"。排查确认这是 ESD 叠加层对每个被跟踪人员画的未接触状态框——但"未触摸"是常态，常驻灰框叠在 YOLO 红框上是纯视觉噪音；且 ESD 快照包含"暂时丢失但仍跟踪中"的人（宽限期内），人离开后灰框还会原地停留约 2 秒，更易被误读成画面多出一个人。ESD 的轨迹跟踪能力本身是判定必需的（Hold 计时/宽限保持都锚定在 TrackId 上），本次只隐藏其可视化，逻辑零改动。需要目检轨迹跟踪效果或核对 ROI 手腕落区时，把 `DrawNoContactBoxes` 改为 true 即恢复旧显示。
+
+### 优化点
+
+- 新增 3 个回归用例（109→112 全绿）：渲染器像素级断言（默认隐藏时未接触框边像素保持背景色、接触绿框不受影响、开关打开恢复灰框）+ 配置缺字段默认 false 与 ToOptions 透传；
+- GUI 冒烟通过，检测/判定行为零变化。
+
+## v2.6（2026-08-26）彻底移除 NuGet 依赖（换机编译失败修复）
+
+### 改动范围
+
+**修复：新电脑 `git clone` 后 Visual Studio 编译报"缺少依赖"的问题——主项目最后两个 NuGet 包也 vendor 进仓库，实现真正的零 NuGet 编译**：
+
+- `Detection\libs\` 新增 3 个 DLL（从 NuGet 缓存按对应目标框架复制）：
+  - `SunnyUI.dll`（net472）、`SunnyUI.Common.dll`（net472）——界面控件库及其基础库；
+  - `Newtonsoft.Json.dll`（net45 目标，net45 组无传递依赖）——配置序列化。
+- `YoloDetector.csproj`：删除 `PackageReference Include="Newtonsoft.Json"` 与 `"SunnyUI"` 两条，改为与 OpenCvSharp/OnnxRuntime 相同的 `Reference + HintPath` 模式指向 `Detection\libs\`。
+
+### 为什么这么改
+
+v2.5 及之前虽然检测类库已离线（OpenCvSharp/OnnxRuntime/SkiaSharp 均 HintPath），但宿主仍剩 SunnyUI/Newtonsoft.Json 两个 PackageReference。换电脑克隆代码后，若 NuGet 还原失败（工厂无网/代理拦截/VS 未自动还原），VS 打开即报缺依赖、编译不过。本次把依赖链收干净：SunnyUI→SunnyUI.Common 链条无更深层依赖，Newtonsoft.Json(net45) 无传递依赖，共 3 个 DLL 即全覆盖。已实测验证：**清空 obj/bin 并把全局 NuGet 缓存中这三个包移走后，`dotnet build` 依然 0 警告 0 错误**——任何新机器克隆即编译，与网络和 NuGet 缓存彻底无关。
+
+### 优化点
+
+- 全量回归 109/109 全绿 + GUI 冒烟通过（退出码 0），行为零变化；
+- README 技术栈表补全 vendor 状态说明；AGENTS.md 技术栈小节同步。
+
 ## v2.5（2026-08-26）ROI 拖拽标定下沉类库（模块迁移零重做）
 
 ### 改动范围

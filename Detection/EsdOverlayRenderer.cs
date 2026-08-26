@@ -6,12 +6,16 @@ namespace YoloDetection
     /// <summary>
     /// 静电接触叠加渲染器（OpenCV 原地绘制实现）。
     ///
-    /// 绘制内容（自上而下）：
-    ///   - 静电杆 ROI：黄色矩形 + 顶部 "ESD POLE" 标签——现场据此目检 ROI 标定位置对不对；
-    ///   - 每个被跟踪的人：
-    ///       接触中 → 绿色粗框 + "ESD OK"；未接触 → 灰色细框 + "NO GND"；
-    ///       手腕落点画圆：在区域内绿色实心 / 区域外红色空心，一眼看出是哪只手差多少；
-    ///   - 左下角统计行 "ESD: n/m in contact"。
+/// 绘制内容（自上而下）：
+///   - 静电杆 ROI：黄色矩形 + 顶部 "ESD POLE" 标签——现场据此目检 ROI 标定位置对不对；
+///   - 每个被跟踪的人：
+///       接触中 → 绿色粗框 + "ESD OK"（关键事件，始终绘制）；
+///       未接触 → 默认不画（DrawNoContactBoxes=true 时画灰色细框 + "NO GND"，用于
+///       目检轨迹跟踪/ROI 命中——未触摸是常态，常驻灰框与 YOLO 红框叠加噪音大，
+///       且人离开后的宽限残留框易被误读，v2.7 起默认隐藏）；
+///       手腕落点画圆：在区域内绿色实心 / 区域外红色空心（随整身框一起显隐，
+///       因为徽标挂在框顶角、单独悬空没有意义）；
+///   - 左下角统计行 "ESD: n/m in contact"。
     ///
     /// 性能说明：全部为矢量绘制（矩形/圆/文字），微秒级，相对推理耗时可忽略；
     /// 不走 Skia 位图往返（Mat→SKBitmap→Mat 约 10ms），预览帧零额外拷贝。
@@ -49,6 +53,16 @@ namespace YoloDetection
             foreach (var status in snapshot.Persons)
             {
                 bool inContact = status.InContact;
+
+                // 未接触人员默认不画整身框/标签/手腕徽标：未触摸是常态，常驻灰框
+                // 叠在 YOLO 红框上是纯视觉噪音，且人离开后的宽限残留框（快照含
+                // "暂时丢失但仍跟踪中"的人）易被误读成画面里多出一个人。
+                // DrawNoContactBoxes=true 时恢复绘制，供现场目检轨迹跟踪与 ROI 落区。
+                if (!inContact && !options.DrawNoContactBoxes)
+                {
+                    continue;
+                }
+
                 var boxColor = inContact ? ContactColor : NoContactColor;
                 int thickness = inContact ? 3 : 1;
 

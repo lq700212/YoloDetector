@@ -31,6 +31,8 @@ namespace YoloDetector.Tests
             T.Case("配置-EsdConfig.UpdateRoiJson局部更新保留注释", EsdUpdateRoiJsonPreservesComments);
             T.Case("配置-EsdConfig.UpdateRoiJson缺失字段补建与坏JSON兜底", EsdUpdateRoiJsonEdgeCases);
             T.Case("配置-EsdConfig.ApplyNormalizedRoi就地夹紧", EsdApplyNormalizedRoiClamps);
+
+            T.Case("配置-EsdConfig.DrawNoContactBoxes缺省false且可配置", EsdDrawNoContactBoxesOption);
         }
 
         /// <summary>验证真实现场配置能正常加载且取值在合法范围</summary>
@@ -261,6 +263,26 @@ namespace YoloDetector.Tests
             T.True(Math.Abs(config.RoiY - 0.31f) < 0.0001f, "合法 Y 就地写入");
             T.True(Math.Abs(config.RoiW - 0.18f) < 0.0001f, "合法 W 就地写入");
             T.True(Math.Abs(config.RoiH - 0.27f) < 0.0001f, "合法 H 就地写入");
+        }
+
+        /// <summary>
+        /// v2.7 新增的未接触灰框显示开关：旧现场 JSON 无此字段时必须反序列化为
+        /// false（升级后画面行为不变，不突然冒出灰色 NO GND 框）；显式配置 true
+        /// 时经 ToOptions 原样传入模块渲染参数。
+        /// </summary>
+        private static void EsdDrawNoContactBoxesOption()
+        {
+            // 旧版 JSON（无 DrawNoContactBoxes 字段）→ 默认 false，ToOptions 同步传递
+            var legacy = Newtonsoft.Json.JsonConvert.DeserializeObject<EsdConfig>(
+                "{\"Enabled\":true,\"HoldDurationMs\":1500}");
+            T.False(legacy.DrawNoContactBoxes, "旧 JSON 缺字段应默认 false（升级画面不变）");
+            T.False(legacy.ToOptions().DrawNoContactBoxes, "ToOptions 应传递默认 false");
+
+            // 显式开启 → 生效并透传给检测模块
+            var on = Newtonsoft.Json.JsonConvert.DeserializeObject<EsdConfig>(
+                "{\"DrawNoContactBoxes\":true}");
+            T.True(on.DrawNoContactBoxes, "显式 true 应反序列化生效");
+            T.True(on.ToOptions().DrawNoContactBoxes, "ToOptions 应透传 true 给渲染开关");
         }
     }
 }

@@ -1,6 +1,6 @@
----
+﻿---
 name: "全量回归验证"
-description: "YoloDetector 一键全量回归验证：构建主项目、运行 109 个进程内回归用例（配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/YOLO检测器/姿态检测器/静电接触分析器与叠加渲染/检测管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造）+ GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
+description: "YoloDetector 一键全量回归验证：构建主项目、运行 112 个进程内回归用例（配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/YOLO检测器/姿态检测器/静电接触分析器与叠加渲染/检测管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造）+ GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
 ---
 
 # 全量回归验证
@@ -16,7 +16,7 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 
 | 源文件 | 测试分区 |
 | --- | --- |
-| Configuration/AppConfig.cs、CameraConfig.cs、YoloConfig.cs、EsdConfig.cs | ConfigTests（含损坏回退/模板替换/模型存在性/EsdConfig现场加载与ToOptions夹紧/UpdateRoiJson局部更新保留注释字段/ApplyNormalizedRoi就地夹紧） |
+| Configuration/AppConfig.cs、CameraConfig.cs、YoloConfig.cs、EsdConfig.cs | ConfigTests（含损坏回退/模板替换/模型存在性/EsdConfig现场加载与ToOptions夹紧/UpdateRoiJson局部更新保留注释字段/ApplyNormalizedRoi就地夹紧/DrawNoContactBoxes缺省false与透传） |
 | Detection/MatExtensions.cs | MatExtensionsTests（像素级无损往返） |
 | App/SkBitmapExtensions.cs | SkBitmapExtensionTests（Bgra8888 错位回归防线，v2.1 真实花屏 bug） |
 | Detection/IDetectionResultProcessor.cs 三个处理器 + DetectionResult.cs | ProcessorTests（行为红线锁定） |
@@ -24,7 +24,7 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 | Detection/YoloV26Detector.cs | DetectorTests（真实模型推理契约） |
 | Detection/YoloPoseDetector.cs、PoseResult.cs | PoseTests（真实模型推理契约 + bus真图端到端：检人→姿态→手腕落位） |
 | Detection/EsdContactAnalyzer.cs、EsdAnalysisOptions.cs、EsdRoiRect.cs、EsdPersonStatus.cs | EsdAnalyzerTests（虚拟时钟驱动状态机全分支：Hold认定/宽限保持/超时退出/轨迹遗忘/快照隔离/Options热更新ROI夹紧且分析器立即可见） |
-| Detection/EsdOverlayRenderer.cs、IEsdOverlayRenderer.cs | EsdAnalyzerTests 中 Overlay 契约用例（null参数安全/原地修改帧/空快照仍画ROI） |
+| Detection/EsdOverlayRenderer.cs、IEsdOverlayRenderer.cs | EsdAnalyzerTests 中 Overlay 契约用例（null参数安全/原地修改帧/空快照仍画ROI/DrawNoContactBoxes开关像素级断言：默认隐藏未接触灰框且接触绿框不受影响/开关打开恢复灰框） |
 | Detection/YoloDetectionService.cs 的 ESD 旁路 + EsdOverlayRenderer.cs | EsdAnalyzerTests 尾部管道集成用例（事件联动/姿态异常不拖垮主检测/未配置零事件） |
 | Detection/ZoomMapping.cs、RoiSelectionState.cs（随类库迁移） | RoiSelectionTests（Zoom显示矩形居中计算/控件点映射归一化与黑边夹紧/拖拽端到端换算归一化ROI含贴边回收/框选状态机正常流·误触忽略·反向规范化·未按下忽略） |
 | Detection/YoloDetectionService.cs | PipelineTests（线程协议，FakeDetector 驱动） |
@@ -84,7 +84,7 @@ powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scr
 powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scripts\Invoke-SmokeTest.ps1"
 ```
 
-预期：harness 输出 `汇总: PASS=109 FAIL=0`；GUI 冒烟 `[SMOKE] 结果: 全部通过`；总退出码 0。
+预期：harness 输出 `汇总: PASS=112 FAIL=0`；GUI 冒烟 `[SMOKE] 结果: 全部通过`；总退出码 0。
 耗时参考：全程约 1~2 分钟（其中 RTSP 拒绝连接用例固定消耗约 30 秒，是 FFmpeg 内部超时的固有行为）。
 
 ## 新增测试用例的固定流程（AI 必须遵守）

@@ -72,6 +72,14 @@ namespace YoloDetector.Configuration
         public bool DrawOverlay { get; set; } = true;
 
         /// <summary>
+        /// 是否为未触摸静电杆的人员画灰色跟踪框（#N NO GND）+ 手腕落点徽标。
+        /// 默认 false：画面平时只有 YOLO 红框与黄色 ROI 框，有人真正触摸时才出现
+        /// 绿色 ESD OK 粗框；现场要目检轨迹跟踪效果或核对手腕落区时临时改 true。
+        /// </summary>
+        [JsonProperty("DrawNoContactBoxes")]
+        public bool DrawNoContactBoxes { get; set; } = false;
+
+        /// <summary>
         /// 转换为检测模块参数。非法值（ROI 出界、负时长等）就地夹紧到安全范围，
         /// 现场手改 JSON 改坏了也不至于让检测逻辑跑飞。
         /// </summary>
@@ -87,7 +95,8 @@ namespace YoloDetector.Configuration
                 HoldDurationMs = Math.Max(0.0, HoldDurationMs),
                 ReleaseGraceMs = Math.Max(0.0, ReleaseGraceMs),
                 WristConfidenceThreshold = Clamp(WristConfidenceThreshold, 0.05f, 0.95f),
-                DrawOverlay = DrawOverlay
+                DrawOverlay = DrawOverlay,
+                DrawNoContactBoxes = DrawNoContactBoxes
             };
         }
 

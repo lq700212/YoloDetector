@@ -19,8 +19,11 @@
 - 关键库（托管 DLL 已 vendor 到 `Detection\libs\`，离线编译）：
   - OpenCvSharp 4.10（RTSP 视频捕获、Mat 图像处理、绘制）
   - Microsoft.ML.OnnxRuntime 1.20（YOLO 推理）
-  - SunnyUI 3.9.8（界面控件库，小清新风格，NuGet）
-  - Newtonsoft.Json（配置序列化，NuGet）
+  - SunnyUI 3.9.8（界面控件库，小清新风格；DLL 已 vendor 到 `Detection\libs\`，零 NuGet）
+
+  - Newtonsoft.Json 13.0.3（配置序列化；DLL 已 vendor 到 `Detection\libs\`，零 NuGet）
+
+- **主项目也零 NuGet**：v2.6 起 csproj 无任何 PackageReference，全部依赖走 `Reference + HintPath` 指向 `Detection\libs\`——新机器克隆即编译，禁止再引入 PackageReference（新依赖一律复制 DLL 进 libs 并写明目标框架来源）
   - System.Net.Http（流地址测试）
 - 构建：`dotnet build YoloDetector.csproj`（见下方"构建与验证命令"），输出到 `bin\Debug\net472\`
 - 已移除 LibVLCSharp/VideoLAN 包与 YOLOTest 历史实验区（模型获取指南已迁至 `docs/ONNX模型获取指南.md`）；`docs\` 保留 `ARCHITECTURE.md`（架构）、`MODULE.md`（模块接入指南）、`ONNX模型获取指南.md`（换模型）、`技术分享-人员检测与人手动作检测实现详解.md`（小白向原理讲解/分享会材料）四份
@@ -161,7 +164,7 @@ else { $proc.CloseMainWindow() | Out-Null; if ($proc.WaitForExit(8000)) { "PASS:
 ```
 
 - 成功标准：输出 `bin\Debug\net472\YoloDetector.exe`，退出码 0；日志文件出现配对的"程序启动/程序退出"标记。
-- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：108 用例 harness 覆盖配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理/姿态检测器/静电接触状态机与叠加渲染/管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
+- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：112 用例 harness 覆盖配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理/姿态检测器/静电接触状态机与叠加渲染/管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
 - 涉及检测算法的改动，除跑 skill 外再用本地图片直接喂 `YoloV26Detector.Detect(Mat)` 做对照验证，确保坐标映射/过滤行为不变。
 - **界面像素级 bug（竖线/颜色/叠色/裁剪/滚动条）**：调用技能 `winforms-ui-debug`（独立 harness 直 new 目标窗体 + PrintWindow 截图 + 像素扫描定位根因）。
 - **调试完自动沉淀技能**：用 `winforms-ui-debug` 或其他套路排查成功后，主动把可复用的新踩坑/新探针回写到对应 SKILL.md 与本文件。

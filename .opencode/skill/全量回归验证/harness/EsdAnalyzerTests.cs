@@ -52,6 +52,8 @@ namespace YoloDetector.Tests
             T.Case("ESD-轨迹容量上限淘汰最旧", TrackLimit);
             T.Case("ESD-叠加绘制null参数契约", Overlay_NullContract);
             T.Case("ESD-叠加绘制原地修改帧内容", Overlay_InPlaceDraw);
+            T.Case("ESD-叠加默认隐藏未接触灰框", Overlay_NoContactHiddenByDefault);
+            T.Case("ESD-开关打开恢复未接触灰框", Overlay_NoContactShownWhenEnabled);
             T.Case("管道-ESD旁路事件与快照联动", Pipeline_EsdEvents);
             T.Case("管道-姿态异常不影响主检测", Pipeline_PoseExceptionSurvival);
             T.Case("管道-未配置ESD时零附加事件", Pipeline_NoEsdNoEvents);
@@ -401,6 +403,81 @@ namespace YoloDetector.Tests
                 renderer.Draw(frame, null, options);
                 T.True(TestUtil.DiffBytes(before, frame) > 0,
                     "snapshot=null 时仍应绘制 ROI 标定框");
+            }
+        }
+
+        // ---- v2.7 未接触灰框显示开关（像素级断言，防"改了没生效"）----
+        // 布局约定：帧 320x240 背景(30,30,30)；MakeOptions 的 ROI 像素区域 x∈[128,192]。
+        // 断言点刻意避开标签/手腕徽标/统计行/ROI 框，只有目标框会经过该像素。
+
+        /// <summary>DrawNoContactBoxes=false（默认）：未接触者整身框不画；接触中绿框不受影响</summary>
+        private static void Overlay_NoContactHiddenByDefault()
+        {
+            var renderer = new EsdOverlayRenderer();
+            var options = MakeOptions(); // DrawNoContactBoxes 默认 false
+
+            var snapshot = new EsdFrameSnapshot();
+            // 未接触者：中心(60,140) 尺寸(80,120) → 整身框 x∈[20,100] y∈[80,200]，避开 ROI
+            snapshot.Persons.Add(new EsdPersonStatus
+            {
+                TrackId = 1,
+                X = 60, Y = 140, Width = 80, Height = 120,
+                LeftWristInZone = false, RightWristInZone = false,
+                InContact = false
+            });
+            // 接触中者：中心(240,170) 尺寸(60,100) → 整身框 x∈[210,270] y∈[120,220]
+            snapshot.Persons.Add(new EsdPersonStatus
+            {
+                TrackId = 2,
+                X = 240, Y = 170, Width = 60, Height = 100,
+                LeftWristInZone = true, RightWristInZone = true,
+                InContact = true,
+                ContactElapsedMs = 2100
+            });
+
+            using (var frame = new Mat(240, 320, MatType.CV_8UC3, new Scalar(30, 30, 30)))
+            {
+                renderer.Draw(frame, snapshot, options);
+
+                // 未接触者整身框顶边中点 (60,80)：若误画灰框应为 (160,160,160)，默认必须仍是背景色
+                var hidden = frame.At<Vec3b>(80, 60);
+                T.Eq((byte)30, hidden.Item0, "默认隐藏未接触灰框: 顶边中点B应仍为背景");
+                T.Eq((byte)30, hidden.Item1, "默认隐藏未接触灰框: 顶边中点G应仍为背景");
+                T.Eq((byte)30, hidden.Item2, "默认隐藏未接触灰框: 顶边中点R应仍为背景");
+
+                // 接触中绿框不受开关影响：右边中点 (270,170) 应为绿色 (BGR 80,255,80)
+                var contact = frame.At<Vec3b>(170, 270);
+                T.Eq((byte)80, contact.Item0, "接触中绿框不受开关影响: B=80");
+                T.Eq((byte)255, contact.Item1, "接触中绿框不受开关影响: G=255");
+                T.Eq((byte)80, contact.Item2, "接触中绿框不受开关影响: R=80");
+            }
+        }
+
+        /// <summary>DrawNoContactBoxes=true：同一断言点恢复灰色 NO GND 整身框（旧行为）</summary>
+        private static void Overlay_NoContactShownWhenEnabled()
+        {
+            var renderer = new EsdOverlayRenderer();
+            var options = MakeOptions();
+            options.DrawNoContactBoxes = true;
+
+            var snapshot = new EsdFrameSnapshot();
+            snapshot.Persons.Add(new EsdPersonStatus
+            {
+                TrackId = 1,
+                X = 60, Y = 140, Width = 80, Height = 120,
+                LeftWristInZone = false, RightWristInZone = false,
+                InContact = false
+            });
+
+            using (var frame = new Mat(240, 320, MatType.CV_8UC3, new Scalar(30, 30, 30)))
+            {
+                renderer.Draw(frame, snapshot, options);
+
+                // 与 HiddenByDefault 同一断言点：打开开关后应变为灰色 (BGR 160,160,160)
+                var shown = frame.At<Vec3b>(80, 60);
+                T.Eq((byte)160, shown.Item0, "开关打开恢复灰框: B=160");
+                T.Eq((byte)160, shown.Item1, "开关打开恢复灰框: G=160");
+                T.Eq((byte)160, shown.Item2, "开关打开恢复灰框: R=160");
             }
         }
 

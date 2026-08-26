@@ -4,6 +4,7 @@
   "_现场标定": "推荐：启动预览后在画面上按住鼠标左键拖拽框选静电杆区域，松手即生效并自动保存到下方四个字段；也可手动修改RoiX/RoiY/RoiW/RoiH(0~1比例坐标)后重启预览；MarginPx用于微调判定松紧",
   "_误报排查": "路人扫过也报→调大HoldDurationMs；摸了不报→确认黄框位置正确、调低WristConfidenceThreshold或加大MarginPx",
   "_性能": "CPU推理慢时把ProcessEveryNFrames调成2~3(每N帧分析一次,不影响时长判定精度)",
+  "_显示": "DrawNoContactBoxes=true时给未触摸静电杆的人画灰色NO GND跟踪框+手腕落点徽标(默认关:未触摸是常态,常驻灰框叠在YOLO红框上噪音大;调ROI/查跟踪时临时打开)。触摸中的绿色ESD OK框不受此开关影响始终绘制",
   "_模型": "PoseModelPath指向YOLO-pose系列onnx(如yolo11n-pose.onnx)，可用tools/download_pose_model.py下载",
   "Enabled": true,
   "PoseModelPath": "Detection/model/yolo11n-pose.onnx",
@@ -16,5 +17,6 @@
   "HoldDurationMs": 1500,
   "ReleaseGraceMs": 2000,
   "ProcessEveryNFrames": 1,
-  "DrawOverlay": true
+  "DrawOverlay": true,
+  "DrawNoContactBoxes": false
 }
