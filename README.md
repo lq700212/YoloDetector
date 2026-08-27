@@ -1,6 +1,8 @@
 ﻿# YoloDetector — 摄像头实时人员检测系统
 
 基于 **WinForms (.NET Framework 4.7.2) + OpenCvSharp4 + ONNX Runtime** 的 RTSP 视频流实时目标检测工具：接入网络摄像头，使用 YOLO ONNX 模型对画面逐帧推理，检测结果（检测框 + 类别 + 置信度）实时叠加显示在预览窗口。**推理全程在本机完成，不依赖 Python 环境**。
+<img width="1282" height="832" alt="image" src="https://github.com/user-attachments/assets/afe82f04-2a00-4192-8c70-d507c52a1787" />
+
 
 在人员检测之上还内置了**静电杆触摸检测**（工厂防静电场景）：对人体做姿态估计取手腕关键点，判定是否落入静电杆区域并持续触摸——详见[功能特性](#功能特性)与[静电杆触摸检测配置](#静电杆触摸检测配置esdconfigjson)。
 
