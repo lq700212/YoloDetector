@@ -25,6 +25,9 @@ namespace YoloDetector.Tests
             T.Case("帧源-视频文件流出帧与停止", Start_FileSource);
             T.Case("帧源-断流自动重连(文件EOF模拟)", ReconnectOnEof);
             T.Case("帧源-无订阅者时不泄漏", NoSubscriberSafe);
+            T.Case("帧源-重复Start顶掉旧链路", RestartReplacesChain);
+            T.Case("帧源-Stop与Dispose幂等", StopDisposeIdempotent);
+            T.Case("帧源-不存在文件返回false", Start_MissingFile);
         }
 
         /// <summary>生成一个 320x240、30 帧、带移动色块的 MJPG 测试视频</summary>
@@ -201,6 +204,79 @@ namespace YoloDetector.Tests
                 {
                     File.Delete(videoPath);
                 }
+            }
+        }
+
+        /// <summary>
+        /// 运行中再次 Start：旧链路被 Stop 顶掉、新链路继续出帧（任何时刻最多一条链路）。
+        /// 用代际号保证老线程不双发帧——断言总帧数持续增长且 Stop 干净。
+        /// </summary>
+        private static void RestartReplacesChain()
+        {
+            string videoPath = CreateTestVideo();
+            if (videoPath == null)
+            {
+                return;
+            }
+
+            try
+            {
+                using (var capturer = new RtspFrameCapturer())
+                {
+                    int frames = 0;
+                    capturer.FrameReady += (s, mat) =>
+                    {
+                        Interlocked.Increment(ref frames);
+                        mat.Dispose();
+                    };
+
+                    T.True(capturer.Start(videoPath), "首次启动应成功");
+                    T.True(T.WaitFor(() => Volatile.Read(ref frames) >= 3, 15000), "旧链路应出帧");
+
+                    T.True(capturer.Start(videoPath), "运行中重复 Start 应成功（顶掉旧链路）");
+                    int before = Volatile.Read(ref frames);
+                    T.True(T.WaitFor(() => Volatile.Read(ref frames) >= before + 3, 15000),
+                        "新链路应继续出帧，之前=" + before + " 现在=" + frames);
+                    T.True(capturer.IsRunning, "重启后应处于运行态");
+
+                    capturer.Stop();
+                    T.False(capturer.IsRunning, "重启后 Stop 仍应干净退出");
+                }
+            }
+            finally
+            {
+                if (File.Exists(videoPath))
+                {
+                    File.Delete(videoPath);
+                }
+            }
+        }
+
+        /// <summary>未启动时 Stop/Dispose、重复 Stop/Dispose 都必须安全无抛</summary>
+        private static void StopDisposeIdempotent()
+        {
+            var capturer = new RtspFrameCapturer();
+            capturer.Stop(); // 未启动 Stop 不抛
+            T.False(capturer.IsRunning, "未启动 IsRunning=false");
+            capturer.Stop();
+            capturer.Dispose();
+            capturer.Dispose(); // 幂等
+            T.False(capturer.IsRunning, "Dispose 后 IsRunning=false");
+        }
+
+        /// <summary>不存在的文件路径：Open 立即失败返回 false（有界，不阻塞）</summary>
+        private static void Start_MissingFile()
+        {
+            using (var capturer = new RtspFrameCapturer())
+            {
+                string bad = Path.Combine(Path.GetTempPath(), "opencode",
+                    "zztest_no_such_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".avi");
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                bool started = capturer.Start(bad);
+                sw.Stop();
+                T.False(started, "不存在文件应返回 false");
+                T.False(capturer.IsRunning, "失败后不应处于运行态");
+                T.True(sw.ElapsedMilliseconds < 15000, "失败路径应有界返回，耗时=" + sw.ElapsedMilliseconds + "ms");
             }
         }
     }

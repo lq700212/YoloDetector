@@ -282,14 +282,18 @@ namespace YoloDetector.Configuration
             lock (_lockObj)
             {
                 config = _esdConfig;
+                // 热更新放在锁内：与 Load* 的写锁同一把，防止"加载回退默认值"与
+                // "标定写入"交错导致标定值被旧值覆盖（窗口极小，但加锁零成本）。
+                if (config != null)
+                {
+                    config.ApplyNormalizedRoi(roiX, roiY, roiW, roiH);
+                }
             }
 
             if (config == null)
             {
                 return; // 静态构造尚未加载过（理论上不可能：属性访问会触发加载），防御跳过
             }
-
-            config.ApplyNormalizedRoi(roiX, roiY, roiW, roiH);
 
             try
             {
@@ -399,14 +403,16 @@ namespace YoloDetector.Configuration
             lock (_lockObj)
             {
                 config = _doorConfig;
+                if (config != null)
+                {
+                    config.ApplyNormalizedRoi(roiX, roiY, roiW, roiH);
+                }
             }
 
             if (config == null)
             {
                 return;
             }
-
-            config.ApplyNormalizedRoi(roiX, roiY, roiW, roiH);
 
             try
             {

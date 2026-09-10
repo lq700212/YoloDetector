@@ -53,7 +53,7 @@ YoloDetector/
    - **禁止用 PowerShell `Set-Content` / `Add-Content` / `Out-File` 写含中文的源码或配置文件**——本项目已实际发生过：一次替换操作把 UTF-8 中文注释转成乱码，还把字段声明吞进了乱码注释行导致编译失败。写文件一律用 write 工具；局部修改用 edit 工具。
    - **`Get-Content | Set-Content` 组合同样会炸**（v2.2 实际再踩一次）：Get-Content 不带 -Encoding 按 ANSI 读 UTF-8 中文，管道替换后写回即永久乱码——即使只是"顺手改个标识符"也不行。若必须用 PowerShell 批量替换，唯一安全姿势是 `[IO.File]::ReadAllText(path, [Text.Encoding]::UTF8)` 读 + `.Replace()` + `[IO.File]::WriteAllText(path, text, [Text.Encoding]::UTF8)` 写，改完立即用铁律 1 的自查命令验证。
    - 新增/修改中文文件后自查：`[IO.File]::ReadAllText(path, [Text.Encoding]::UTF8).Contains("预期中文")` 能命中。
-2. **运行配置与数据不混入源码**：`appsettings.json`、`cameraConfigs\*.json`、`Detection\yoloConfig.json`、`Detection\esdConfig.json` 是现场运行配置（阈值、IP、地址模板、静电杆 ROI 标定都靠它们调），`Detection\model\*.onnx` 是模型文件（大二进制）。调试时**不得为图方便把这些文件的值改死后提交**；需要改默认值时同步修改对应的 Configuration 模型类默认值并在响应中说明。
+2. **运行配置与数据不混入源码**：`appsettings.json`、`cameraConfigs\*.json`、`Detection\yoloConfig.json`、`Detection\esdConfig.json`、`Detection\doorConfig.json` 是现场运行配置（阈值、IP、地址模板、静电杆/门 ROI 标定都靠它们调），`Detection\model\*.onnx` 是模型文件（大二进制）。调试时**不得为图方便把这些文件的值改死后提交**；需要改默认值时同步修改对应的 Configuration 模型类默认值并在响应中说明。
    - **构建不得重置现场配置（v2.9）**：这些文件经 csproj 的 `CopyRuntimeConfigsIfMissing` Target 复制——**仅当输出目录不存在时才复制**，严禁改回 PreserveNewest（会把 bin 里现场标定的 ROI/阈值/IP 冲掉，v2.9 前实际发生过"重启后标定失效"）。两个实测坑：① Target 内 batching Include 不继承 `RecursiveDir` 通配元数据，Dest 必须在静态 ItemGroup 预计算；② 从 Content 复制切换到自定义 Target 的**第一次构建**，IncrementalClean 会把旧登记文件从 bin 删除（含姿态模型 → ESD 静默降级为纯人员检测，用户实测踩坑），切换后必须立即核对 bin 文件完整性。
 3. **改动后必须构建验证**，禁止交付编译不过的代码。涉及启动/退出的改动加冒烟测试（见下文命令）。
 4. **不主动 commit/push**，除非用户明确要求；提交前先 `git status` + `git diff` 确认只包含预期改动。**`.gitignore` 检查是每次交付的固定动作，不要等用户提醒**：
@@ -105,11 +105,13 @@ YoloDetector/
 8. **防积压**：视频管线用单槽位缓冲（新帧覆盖旧帧），不要用无限队列；网络请求轮询必须有防重入保护（参照 `CameraController.TryGetStatusAsync` 的 Interlocked 模式）。
 9. **事件订阅/退订必须成对**：长生命周期对象订阅短生命周期对象的事件会阻止 GC 回收（内存泄漏）。本项目做法是控制器统一接线/拆线（`VideoDetectionController.Start/Stop` 内 `+=`/`-=` 成对出现），不要散落在窗体各处。
 10. **native 阻塞调用无法打断时的自愈模式（RtspFrameCapturer 断流自愈实测沉淀）**：FFmpeg `VideoCapture.Read` 在半开 TCP 连接上永久阻塞，且本机构建上**没有任何 native 层超时可依**——① `VideoCapture(url, api, params)` 带 CAP_PROP_OPEN/READ_TIMEOUT 打开即报 "unsupported parameters, Bailout"（连本地文件都打不开）；② `OPENCV_FFMPEG_CAPTURE_OPTIONS` 环境变量经 OS 继承/.NET 进程注入均无效；③ UCRT `_wputenv` 直写也无效。唯一可行解是**应用层看门狗**：捕获线程每轮刷心跳 → 看门狗发现心跳停滞即废弃整条链路（代际号 +1 让僵尸线程苏醒后自杀）、全新实例+线程顶上；VideoCapture 所有权归捕获线程私有（外部永不 Release 可能被卡死线程持有的实例——那会崩溃），卡死线程与其实例作为已知泄漏留给进程退出回收。改帧源前先读类头注释。
+11. **跨线程共享 Mat 一律"锁内 Clone 快照、锁外使用"（v2.9.2 血泪）**：UI 线程与检测/捕获线程共享的 Mat（门基准图、门基准缓存帧）绝不能"原子替换引用 + 使用方直接读引用"——替换后立即 Dispose 旧图会造成另一线程 use-after-dispose（预览运行时点"重设门基准"必现）。正确模式：专用锁内 Clone 出私有快照 → 锁外使用 → 用完释放；替换方锁内 swap 并释放旧图（此时无人再持有旧引用）。引用赋值原子性 ≠ 生命周期安全。
 
 ## 性能约定（实测数据沉淀）
 
 - **Mat ↔ SKBitmap 互转只用 `MatExtensions.MatToSKBitmap/SKBitmapToMat`**（Bgra8888 与 OpenCV BGRA 布局对齐：SIMD CvtColor 补 alpha + `Buffer.MemoryCopy` 整块拷贝，1080P 约 5ms；往返像素差=0）；**禁止 JPEG 编解码中转**（10~30ms 且画质损失）、禁止逐像素 `Mat.Get<Vec3b>`（百万次 P/Invoke，30~80ms）。WinForms 显示链路在宿主边界经 `App/SkBitmapExtensions.ToDrawingBitmap()` 转 System.Drawing.Bitmap（约 0.5ms）。
 - 张量预处理用 Marshal.Copy 整块拷贝像素 + 单层循环填 CHW，勿回退到逐像素访问。
+- 逐帧路径零大对象分配（v2.9.2）：预处理 byte[]/float[]、输出展平缓冲一律实例复用（85KB 以上进 LOH，LOH 只在 Gen2 回收时整理，逐帧分配等于慢性卡顿）；`SKTypeface.FromFamilyName` 这类查找型资源静态缓存（SKPaint 非线程安全仍按次创建）；日志字符串先判开关再插值。
 - 日志分级开关集中在 `LogManager`：YOLO 详细日志/每帧结果日志默认关闭（每帧刷日志会导致卡顿），调试完记得关回去。
 - ONNX 模型实例跨预览会话复用（`VideoDetectionController.EnsureDetector`），不要每次启停都重新加载模型（加载耗时秒级）。
 
@@ -167,7 +169,7 @@ else { $proc.CloseMainWindow() | Out-Null; if ($proc.WaitForExit(8000)) { "PASS:
 ```
 
 - 成功标准：输出 `bin\Debug\net472\YoloDetector.exe`，退出码 0；日志文件出现配对的"程序启动/程序退出"标记。
-- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：121 用例 harness 覆盖配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理/姿态检测器/静电接触状态机与叠加渲染/管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
+- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：180 用例 harness 覆盖配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理与过滤NMS双布局解析/姿态检测器/静电接触状态机与叠加渲染/门状态监测/检测管道线程协议与ESD降频与门旁路/帧源/端到端含ESD与门/相机客户端与设备状态/日志门面异常隔离与文件日志并发/UI坐标换算与框选状态机/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
 - 涉及检测算法的改动，除跑 skill 外再用本地图片直接喂 `YoloV26Detector.Detect(Mat)` 做对照验证，确保坐标映射/过滤行为不变。
 - **界面像素级 bug（竖线/颜色/叠色/裁剪/滚动条）**：调用技能 `winforms-ui-debug`（独立 harness 直 new 目标窗体 + PrintWindow 截图 + 像素扫描定位根因）。
 - **调试完自动沉淀技能**：用 `winforms-ui-debug` 或其他套路排查成功后，主动把可复用的新踩坑/新探针回写到对应 SKILL.md 与本文件。

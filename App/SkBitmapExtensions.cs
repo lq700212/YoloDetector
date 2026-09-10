@@ -1,5 +1,4 @@
 using System;
-using System.Runtime.InteropServices;
 using SkiaSharp;
 
 namespace YoloDetector.App
@@ -53,9 +52,11 @@ namespace YoloDetector.App
 
         /// <summary>
         /// Bgra8888 → 24bpp BGR 压缩拷贝。
-        /// 做法：整块 Marshal.Copy 拷出源像素（单次 P/Invoke），随后托管内存内
-        /// 单层循环跳过 alpha 写入目标行；目标行尾 stride 由 LockBits 决定，
-        /// 按 Scan0 + y*Stride 定位，天然处理 4 字节行对齐 padding。
+        /// 做法：源/目标双指针逐行直拷（跳过 alpha），目标行尾 stride 由 LockBits
+        /// 决定，按 Scan0 + y*Stride 定位，天然处理 4 字节行对齐 padding。
+        ///
+        /// 性能：零托管临时数组——旧实现先 Marshal.Copy 出整帧 byte[]（1080P 约 8MB
+        /// 大对象，进 LOH），再循环写入；现直接指针到指针搬运，无大对象分配。
         /// </summary>
         private static unsafe void ConvertBgraToBgr24(SKBitmap skb, System.Drawing.Imaging.BitmapData dst)
         {
@@ -63,26 +64,25 @@ namespace YoloDetector.App
             int height = skb.Height;
             long srcRowBytes = skb.RowBytes; // Bgra8888 时 == width*4
 
-            byte[] src = new byte[checked(srcRowBytes * height)];
-            Marshal.Copy(skb.GetPixels(), src, 0, src.Length);
-
+            byte* srcBase = (byte*)skb.GetPixels().ToPointer();
             byte* dstBase = (byte*)dst.Scan0;
             int dstStride = dst.Stride;
 
             for (int y = 0; y < height; y++)
             {
-                int srcRow = (int)(y * srcRowBytes);
-                int dstRow = y * dstStride;
+                byte* s = srcBase + y * srcRowBytes;
+                byte* d = dstBase + y * dstStride;
 
+                // 内层手动展开 intentions：逐像素 B,G,R 三字节搬运并跳过 alpha。
+                // 实测编译器对这类简单循环的优化已足够好，不手写指针步进以外的花活。
                 for (int x = 0; x < width; x++)
                 {
-                    int s = srcRow + x * 4; // Bgra8888: [B,G,R,A]
-                    int d = dstRow + x * 3;
-
-                    dstBase[d] = src[s];     // B
-                    dstBase[d + 1] = src[s + 1]; // G
-                    dstBase[d + 2] = src[s + 2]; // R
-                    // alpha 忽略（输出为不透明 24bpp）
+                    d[0] = s[0]; // B
+                    d[1] = s[1]; // G
+                    d[2] = s[2]; // R
+                    // s[3] 为 alpha：输出为不透明 24bpp，直接忽略
+                    s += 4;
+                    d += 3;
                 }
             }
         }

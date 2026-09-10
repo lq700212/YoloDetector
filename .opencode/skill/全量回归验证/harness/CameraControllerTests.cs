@@ -18,6 +18,8 @@ namespace YoloDetector.Tests
             T.Case("相机-空IP连接抛参数异常", ConnectEmptyIp);
             T.Case("相机-BuildStreamUrl未连接走配置模板", BuildUrlFallback);
             T.Case("相机-工厂返回Angehua实现且流地址正确", FactoryCreatesAngehua);
+            T.Case("相机-BuildStreamUrl空值兜底", BuildUrlNullSafe);
+            T.Case("相机-失败连接不残留状态", FailedConnectClean);
         }
 
         private static void NotConnectedSafe()
@@ -79,6 +81,41 @@ namespace YoloDetector.Tests
             // 分支切换依赖现场配置的 CameraBrand，此处验证当前激活品牌路径稳定）
             ICameraApi another = CameraApiFactory.Create("0.0.0.0");
             T.True(another != null, "工厂对任意输入都不应返回 null");
+        }
+
+        /// <summary>null fallbackIp 也应回退默认 IP 产出地址（v2.9.2 GetRtspUrl 加固）</summary>
+        private static void BuildUrlNullSafe()
+        {
+            var controller = new CameraController();
+            string url = controller.BuildStreamUrl(0, null); // 不抛
+            T.True(!string.IsNullOrEmpty(url), "null fallbackIp 应产出非空地址");
+            T.True(url.StartsWith("rtsp://"), "地址格式正确: " + url);
+        }
+
+        /// <summary>
+        /// 连接失败（拒绝端口）后控制器保持未连接、无残留 IP，
+        /// 后续 Disconnect/查询依然安全——不允许"一次失败永久脏状态"。
+        /// </summary>
+        private static void FailedConnectClean()
+        {
+            var controller = new CameraController();
+            // 127.0.0.1:9 必然拒绝：先把现场超时改小？ConnectAsync 用配置超时（10s），
+            // 拒绝连接是 RST 立即失败，不会等超时（AngehuaClientTests 已验证快速失败）。
+            // 注意：此用例依赖现场配置端口 554？不——工厂用配置端口探测 127.0.0.1，
+            // 本机 554 极大概率关闭 → RST 快速失败。若本机恰好开着 554 则连接成功，
+            // 此时不断言失败，只断言状态一致性（IsConnected 与 ConnectedIp 配对）。
+            bool ok = Task.Run(() => controller.ConnectAsync("127.0.0.1")).GetAwaiter().GetResult();
+            if (!ok)
+            {
+                T.False(controller.IsConnected, "失败后应保持未连接");
+                T.True(controller.ConnectedIp == null, "失败后 ConnectedIp 应为 null");
+            }
+            else
+            {
+                T.True(controller.ConnectedIp == "127.0.0.1", "成功时 IP 配对记录");
+            }
+            controller.Disconnect();
+            T.False(controller.IsConnected, "Disconnect 后未连接");
         }
     }
 }

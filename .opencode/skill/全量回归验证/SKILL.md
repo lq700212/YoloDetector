@@ -1,6 +1,6 @@
 ﻿---
 name: "全量回归验证"
-description: "YoloDetector 一键全量回归验证：构建主项目、运行 127 个进程内回归用例（配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/YOLO检测器/姿态检测器/静电接触分析器与叠加渲染/门状态监测/检测管道线程协议与ESD旁路/帧源/端到端含ESD降级/相机客户端与设备状态/日志门面与文件日志/UI坐标换算与框选状态机/UI构造）+ GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
+description: "YoloDetector 一键全量回归验证：构建主项目、运行 180 个进程内回归用例（配置含EsdConfig与ROI标定写回/YoloConfig与URL兜底/Mat互转/宿主位图转换/后处理/可视化器/YOLO检测器过滤与NMS与双布局解析/姿态检测器/静电接触分析器与叠加渲染/门状态监测/检测管道线程协议与ESD降频与门旁路/帧源/端到端含ESD与门降级/相机客户端与设备状态/日志门面异常隔离与文件日志并发/UI坐标换算与框选状态机/UI构造）+ GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
 ---
 
 # 全量回归验证
@@ -16,26 +16,26 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 
 | 源文件 | 测试分区 |
 | --- | --- |
-| Configuration/AppConfig.cs、CameraConfig.cs、YoloConfig.cs、EsdConfig.cs | ConfigTests（含损坏回退/模板替换/模型存在性/EsdConfig现场加载与ToOptions夹紧/UpdateRoiJson局部更新保留注释字段/ApplyNormalizedRoi就地夹紧/DrawNoContactBoxes缺省false与透传） |
+| Configuration/AppConfig.cs、CameraConfig.cs、YoloConfig.cs、EsdConfig.cs、RoiJsonUpdater.cs | ConfigTests（含损坏回退/模板替换与null兜底/YoloConfig默认值/模型存在性/EsdConfig现场加载与ToOptions夹紧/UpdateRoiJson局部更新保留注释字段/非对象JSON返null/ApplyNormalizedRoi就地夹紧/DrawNoContactBoxes缺省false与透传） |
 | Detection/MatExtensions.cs | MatExtensionsTests（像素级无损往返） |
-| App/SkBitmapExtensions.cs | SkBitmapExtensionTests（Bgra8888 错位回归防线，v2.1 真实花屏 bug） |
-| Detection/IDetectionResultProcessor.cs 三个处理器 + DetectionResult.cs | ProcessorTests（行为红线锁定） |
-| Detection/Visualizers.cs、YoloBuiltinVisualizer.cs | VisualizerTests（不污染原帧/null 契约/工厂） |
-| Detection/YoloV26Detector.cs | DetectorTests（真实模型推理契约） |
+| App/SkBitmapExtensions.cs | SkBitmapExtensionTests（Bgra8888 错位回归防线，v2.1 真实花屏 bug；Alpha忽略） |
+| Detection/IDetectionResultProcessor.cs 三个处理器 + DetectionResult.cs | ProcessorTests（行为红线锁定 + 空链/非法参数防御） |
+| Detection/Visualizers.cs、YoloBuiltinVisualizer.cs | VisualizerTests（不污染原帧/null 契约/工厂 + null结果与出界框不崩） |
+| Detection/YoloV26Detector.cs | DetectorTests（真实模型推理契约 + 反射锁定TryAdd过滤与裁剪/ParseOutput双布局与非法形状/ApplyNms去重 + 奇数尺寸 + 连续推理耗时观察） |
 | Detection/YoloPoseDetector.cs、PoseResult.cs | PoseTests（真实模型推理契约 + bus真图端到端：检人→姿态→手腕落位） |
-| Detection/EsdContactAnalyzer.cs、EsdAnalysisOptions.cs、EsdRoiRect.cs、EsdPersonStatus.cs | EsdAnalyzerTests（虚拟时钟驱动状态机全分支：Hold认定/宽限保持/超时退出/轨迹遗忘/快照隔离/Options热更新ROI夹紧且分析器立即可见/双手合拢兜底四分支：交叠命中·分开不走兜底·中点出ROI·肘点不可信/指尖外推四分支：指向命中·背离不误判·肘低置信·腕低置信） |
+| Detection/EsdContactAnalyzer.cs、EsdAnalysisOptions.cs、EsdRoiRect.cs、EsdPersonStatus.cs | EsdAnalyzerTests（虚拟时钟驱动状态机全分支：Hold认定/宽限保持/超时退出/轨迹遗忘/快照隔离/空与短缺输入/零尺寸帧/时钟跳变与回拨/多人独立/结束事件时长/Options热更新ROI夹紧且分析器立即可见/双手合拢兜底四分支：交叠命中·分开不走兜底·中点出ROI·肘点不可信/指尖外推四分支：指向命中·背离不误判·肘低置信·腕低置信） |
 
-| Detection/DoorMonitorAnalyzer.cs、DoorMonitorOptions.cs、IDoorOverlayRenderer.cs、DoorOverlayRenderer.cs | DoorMonitorTests（基准采集落盘与重启重载/画面一致与亮度漂移不误报/结构变化防抖翻转+事件/人遮挡跳过判定/短暂变化不翻转/DoorConfig默认值与ToOptions夹紧与ROI JSON） |
+| Detection/DoorMonitorAnalyzer.cs、DoorMonitorOptions.cs、IDoorOverlayRenderer.cs、DoorOverlayRenderer.cs | DoorMonitorTests（基准采集落盘与重启重载/画面一致与亮度漂移不误报/结构变化防抖翻转+事件/人遮挡跳过判定/短暂变化不翻转/无基准与坏帧与灰度帧安全/零防抖/来回抖动/换分辨率/ROI越界夹紧/Dispose清空/DoorConfig默认值与ToOptions夹紧与ROI JSON） |
 | Detection/EsdOverlayRenderer.cs、IEsdOverlayRenderer.cs | EsdAnalyzerTests 中 Overlay 契约用例（null参数安全/原地修改帧/空快照仍画ROI/DrawNoContactBoxes开关像素级断言：默认隐藏未接触灰框且接触绿框不受影响/开关打开恢复灰框） |
 | Detection/YoloDetectionService.cs 的 ESD 旁路 + EsdOverlayRenderer.cs | EsdAnalyzerTests 尾部管道集成用例（事件联动/姿态异常不拖垮主检测/未配置零事件） |
-| Detection/ZoomMapping.cs、RoiSelectionState.cs（随类库迁移） | RoiSelectionTests（Zoom显示矩形居中计算/控件点映射归一化与黑边夹紧/拖拽端到端换算归一化ROI含贴边回收/框选状态机正常流·误触忽略·反向规范化·未按下忽略） |
-| Detection/YoloDetectionService.cs | PipelineTests（线程协议，FakeDetector 驱动） |
-| Detection/RtspFrameCapturer.cs | FrameSourceTests（视频文件流 + 拒绝连接 + 断流自动重连(文件EOF驱动连续失败→Reopen路径)） |
-| App/VideoDetectionController.cs | EndToEndTests（端到端全链路 + ESD旁路装配/姿态模型缺失自动降级） |
-| App/CameraController.cs、CameraApiFactory.cs | CameraControllerTests（未连接契约/工厂） |
-| Cameras/AngehuaCameraApiClient.cs、DeviceStatus.cs | AngehuaClientTests（快速失败/有界超时/桩契约/使用率计算） |
-| Detection/LogManager.cs | LogManagerTests（三通道独立开关） |
-| Infrastructure/Logging/Logger.cs | LoggerTests（惰性初始化/Close 幂等与静默） |
+| Detection/ZoomMapping.cs、RoiSelectionState.cs（随类库迁移） | RoiSelectionTests（Zoom显示矩形居中计算/控件点映射归一化与黑边夹紧与负坐标/拖拽端到端换算归一化ROI含贴边回收/框选状态机正常流·误触忽略·反向规范化·未按下忽略·重复Press与Reset·5px边界） |
+| Detection/YoloDetectionService.cs | PipelineTests（线程协议，FakeDetector 驱动：快照隔离/异常零逃逸含绘制异常/单槽位缓冲/停止协议/空返回值分支/ESD降频节流/门旁路联动/快速启停压力） |
+| Detection/RtspFrameCapturer.cs | FrameSourceTests（视频文件流 + 拒绝连接 + 不存在文件 + 重复Start顶替 + Stop/Dispose幂等 + 断流自动重连(文件EOF驱动连续失败→Reopen路径)） |
+| App/VideoDetectionController.cs | EndToEndTests（端到端全链路 + ESD旁路装配/姿态模型缺失自动降级/无姿态路径纯检测/门监测全链路与热更新true路径/无链路false路径/重复Start顶替） |
+| App/CameraController.cs、CameraApiFactory.cs | CameraControllerTests（未连接契约/工厂/空值兜底/失败连接状态干净） |
+| Cameras/AngehuaCameraApiClient.cs、DeviceStatus.cs | AngehuaClientTests（快速失败/有界超时/桩契约/流地址三占位符/使用率计算） |
+| Detection/LogManager.cs | LogManagerTests（三通道独立开关/UI送达与清除/双通道异常隔离/null通道保持语义） |
+| Infrastructure/Logging/Logger.cs | LoggerTests（惰性初始化/并发写入/Close 幂等与静默） |
 | UI/MainForm.cs + Layout、Program.cs | UiSmokeTests（STA 构造冒烟）+ Invoke-SmokeTest.ps1（真进程 GUI 冒烟） |
 
 未覆盖边界（说明原因）：MainForm 的 private 交互方法（按钮事件/日志裁剪）需真实 UI 交互驱动，
@@ -89,8 +89,8 @@ powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scr
 powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scripts\Invoke-SmokeTest.ps1"
 ```
 
-预期：harness 输出 `汇总: PASS=121 FAIL=0`；GUI 冒烟 `[SMOKE] 结果: 全部通过`；总退出码 0。
-耗时参考：全程约 1~2 分钟（其中 RTSP 拒绝连接用例固定消耗约 30 秒，是 FFmpeg 内部超时的固有行为）。
+ 预期：harness 输出 `汇总: PASS=180 FAIL=0`；GUI 冒烟 `[SMOKE] 结果: 全部通过`；总退出码 0。
+ 耗时参考：全程约 2~3 分钟（其中 RTSP 拒绝连接与不可达地址用例固定消耗约 30 秒，是 FFmpeg/TCP 内部超时的固有行为）。
 
 ## 新增测试用例的固定流程（AI 必须遵守）
 
@@ -132,6 +132,7 @@ powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scr
 - **归一化坐标换算断言禁止 float 精确相等**：0.2f/0.3f 是二进制无限小数，
   乘帧宽后带尾差，会出现"打印值相同却断言失败"，用 Math.Abs(diff)<0.01 容差。
 - **STA 目检探针（Invoke-RoiDragVisualCheck.ps1）三个坑**：
+- **反射测私有纯逻辑（v2.9.2 新增套路）**：`TryAdd/ParseOutput/ApplyNms` 是无 IO 的纯函数，反射直测（`GetMethod("TryAdd", NonPublic|Instance)`）比"凑模型输出"稳定得多；合成张量用 `new DenseTensor<float>(data, new[]{1,N,D})` 构造（行主序，`data[i*D+d]` 即候选 i 的第 d 维）；`m.Invoke` 的 object[] 参数类型必须精确匹配（float 与 int 不可混）；harness 工程如需张量类型必须显式引用 `Microsoft.ML.OnnxRuntime`（见 harness csproj 注释——此前缺引用导致 3 个编译错误）；反射目标改名/改签名时 `GetMethod` 返回 null、用例以 NullReferenceException 失败（T.Case 会捕获并记 FAIL，loud failure，可据此定位）。
   ① write 工具产出的 ps1 是无 BOM UTF-8，含中文注释会被 PowerShell 5.1 按 ANSI 解析炸语法——探针脚本注释一律英文；
   ② `[Reflection.BindingFlags]"NonPublic|Instance"` 字符串解析失败，必须用 `::NonPublic -bor ::Instance`；
   ③ CopyFromScreen 截屏幕区域会被其他窗口遮挡，截图前须 `$form.TopMost=$true; $form.Activate()`；

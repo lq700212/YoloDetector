@@ -33,6 +33,9 @@ namespace YoloDetector.Tests
             T.Case("配置-EsdConfig.ApplyNormalizedRoi就地夹紧", EsdApplyNormalizedRoiClamps);
 
             T.Case("配置-EsdConfig.DrawNoContactBoxes缺省false且可配置", EsdDrawNoContactBoxesOption);
+            T.Case("配置-YoloConfig默认值合法", YoloConfigDefaults);
+            T.Case("配置-GetRtspUrl空模板与空IP兜底", RtspUrlFallbacks);
+            T.Case("配置-RoiJsonUpdater非对象JSON返回null", RoiUpdaterNonObject);
         }
 
         /// <summary>验证真实现场配置能正常加载且取值在合法范围</summary>
@@ -283,6 +286,58 @@ namespace YoloDetector.Tests
                 "{\"DrawNoContactBoxes\":true}");
             T.True(on.DrawNoContactBoxes, "显式 true 应反序列化生效");
             T.True(on.ToOptions().DrawNoContactBoxes, "ToOptions 应透传 true 给渲染开关");
+        }
+
+        /// <summary>YoloConfig 代码默认值必须合法（损坏回退时靠它们启动预览）</summary>
+        private static void YoloConfigDefaults()
+        {
+            var cfg = new YoloConfig();
+            T.False(string.IsNullOrEmpty(cfg.ModelPath), "默认模型路径非空");
+            T.True(cfg.ConfidenceThreshold > 0f && cfg.ConfidenceThreshold < 1f,
+                "默认置信度阈值应在(0,1)，实际=" + cfg.ConfidenceThreshold);
+            T.True(cfg.NmsThreshold > 0f && cfg.NmsThreshold < 1f,
+                "默认 NMS 阈值应在(0,1)，实际=" + cfg.NmsThreshold);
+            T.False(cfg.YoloDebugLog, "调试日志默认关闭");
+            T.False(cfg.DetectionResultLog, "每帧结果日志默认关闭");
+            T.False(string.IsNullOrEmpty(cfg.VisualizerType), "可视化方案默认非空");
+
+            // 默认模型路径指向的文件应在仓库内真实存在（回退路径能实际加载）
+            string modelPath = TestUtil.BinPath(cfg.ModelPath.Replace('/', '\\'));
+            T.True(File.Exists(modelPath), "默认模型文件应存在: " + modelPath);
+        }
+
+        /// <summary>
+        /// GetRtspUrl 防御分支（v2.9.2）：模板被手改成 null/空、IP 为 null 时
+        /// 回退默认模板/空串而不抛 NullReferenceException。
+        /// </summary>
+        private static void RtspUrlFallbacks()
+        {
+            var stream = new CameraConfig.StreamConfig
+            {
+                RtspPort = 554,
+                RtspUrlFormat = null // 模拟 JSON 里显式写 null 覆盖默认值
+            };
+            string url = stream.GetRtspUrl("10.0.0.5", 1);
+            T.Eq("rtsp://10.0.0.5:554/stream1", url, "null 模板应回退内置默认");
+
+            stream.RtspUrlFormat = "";
+            T.Eq("rtsp://10.0.0.5:554/stream1", stream.GetRtspUrl("10.0.0.5", 1),
+                "空模板应回退内置默认");
+
+            stream.RtspUrlFormat = "rtsp://{ip}:{port}/stream{channel}";
+            string nullIp = stream.GetRtspUrl(null, 0); // 不抛
+            T.True(nullIp.StartsWith("rtsp://"), "null IP 也应产出地址: " + nullIp);
+        }
+
+        /// <summary>RoiJsonUpdater 只接受 JSON 对象：数组/标量输入返回 null（调用方重建文件）</summary>
+        private static void RoiUpdaterNonObject()
+        {
+            T.True(RoiJsonUpdater.Update("[1,2,3]", 0.1f, 0.2f, 0.3f, 0.4f) == null,
+                "数组 JSON 应返回 null");
+            T.True(RoiJsonUpdater.Update("5", 0.1f, 0.2f, 0.3f, 0.4f) == null,
+                "标量 JSON 应返回 null");
+            T.True(RoiJsonUpdater.Update("\"str\"", 0.1f, 0.2f, 0.3f, 0.4f) == null,
+                "字符串 JSON 应返回 null");
         }
     }
 }

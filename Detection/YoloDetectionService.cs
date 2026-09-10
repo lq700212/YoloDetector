@@ -46,6 +46,14 @@ namespace YoloDetection
         private long _esdFrameCounter;
         private EsdFrameSnapshot _lastEsdSnapshot;
 
+        // 已挂接分析器事件的实例跟踪（v2.9.2）：分析器是属性注入的，宿主理论上可在
+        // 运行期替换实例。旧实现每帧"先退订当前实例、再订阅当前实例"——若实例刚被换过，
+        // 旧实例上的订阅永远收不回来（事件源持有管道方法委托，旧分析器无法被 GC，
+        // 且旧分析器触发的翻转事件仍会转发出来造成"幽灵事件"）。现只在实例变化时
+        // 搬运订阅；Stop 清理时一并拆除（见 CleanupAfterStopped）。
+        private EsdContactAnalyzer _subscribedEsdAnalyzer;
+        private DoorMonitorAnalyzer _subscribedDoorAnalyzer;
+
         public event EventHandler<List<DetectionResult>> DetectionsUpdated;
 
         public event EventHandler<Mat> FrameProcessed;
@@ -409,9 +417,18 @@ namespace YoloDetection
             {
                 List<PoseResult> poses = poseDetector.Detect(frame, detections);
 
-                // 状态翻转先于快照事件发出（UI 先收到"开始触摸"再刷新统计，顺序更符合直觉）
-                analyzer.ContactChanged -= OnEsdContactChanged;
-                analyzer.ContactChanged += OnEsdContactChanged;
+                // 状态翻转先于快照事件发出（UI 先收到"开始触摸"再刷新统计，顺序更符合直觉）。
+                // 订阅搬运只在分析器实例变化时执行（见字段注释）：每帧重复 -=/+= 是白耗，
+                // 且实例被替换时会把订阅遗漏在旧实例上。
+                if (!ReferenceEquals(_subscribedEsdAnalyzer, analyzer))
+                {
+                    if (_subscribedEsdAnalyzer != null)
+                    {
+                        _subscribedEsdAnalyzer.ContactChanged -= OnEsdContactChanged;
+                    }
+                    analyzer.ContactChanged += OnEsdContactChanged;
+                    _subscribedEsdAnalyzer = analyzer;
+                }
 
                 EsdFrameSnapshot snapshot = analyzer.Update(detections, poses, width, height);
 
@@ -457,8 +474,16 @@ namespace YoloDetection
 
             try
             {
-                analyzer.StateChanged -= OnDoorStateChanged;
-                analyzer.StateChanged += OnDoorStateChanged;
+                // 订阅搬运只在实例变化时执行（与 ESD 旁路同一模式，见字段注释）
+                if (!ReferenceEquals(_subscribedDoorAnalyzer, analyzer))
+                {
+                    if (_subscribedDoorAnalyzer != null)
+                    {
+                        _subscribedDoorAnalyzer.StateChanged -= OnDoorStateChanged;
+                    }
+                    analyzer.StateChanged += OnDoorStateChanged;
+                    _subscribedDoorAnalyzer = analyzer;
+                }
 
                 DoorFrameSnapshot snapshot = analyzer.Update(frame, detections, EsdContactAnalyzer.NowMs());
 
@@ -555,6 +580,20 @@ namespace YoloDetection
                 _lastDetections.Clear();
                 _lastEsdSnapshot = null; // ESD 快照随会话清空，避免下次启动显示旧画面结论
                 _esdFrameCounter = 0;
+
+                // 拆除分析器事件订阅：管道与分析器可能被宿主复用到下一会话，
+                // 残留订阅会导致重复挂接（同一翻转发两次事件）。
+                // 注意只拆"本管道挂上去的"那一份（跟踪字段），宿主自己的订阅不动。
+                if (_subscribedEsdAnalyzer != null)
+                {
+                    _subscribedEsdAnalyzer.ContactChanged -= OnEsdContactChanged;
+                    _subscribedEsdAnalyzer = null;
+                }
+                if (_subscribedDoorAnalyzer != null)
+                {
+                    _subscribedDoorAnalyzer.StateChanged -= OnDoorStateChanged;
+                    _subscribedDoorAnalyzer = null;
+                }
             }
         }
         }

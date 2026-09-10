@@ -218,6 +218,10 @@ namespace YoloDetection
             {
                 if (_stopRequested)
                 {
+                    // Stop 与重建竞态：外部已要求停止，新实例不能顶上去，
+                    // 必须就地释放（否则泄漏一个 VideoCapture）。
+                    // 旧实现此处直接 return 而忘记释放 fresh。
+                    try { fresh.Dispose(); } catch { }
                     return;
                 }
 

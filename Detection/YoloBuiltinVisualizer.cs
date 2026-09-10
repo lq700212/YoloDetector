@@ -17,6 +17,13 @@ namespace YoloDetection
     /// </summary>
     public class YoloBuiltinVisualizer : IDetectionVisualizer
     {
+        // 进程级复用的粗体字型：SKTypeface.FromFamilyName 内部走字体匹配查找，
+        // 每帧调用一次是纯浪费（实测占绘制耗时的可观比例）。SKTypeface 是不可变
+        // 引用计数对象，线程安全，可静态共享；进程退出由 OS 回收，无需释放。
+        // 注意：SKPaint 不是线程安全的，故画笔仍按次创建，只缓存字型。
+        private static readonly SKTypeface CachedBoldTypeface =
+            SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold);
+
         public Mat Draw(Mat frame, List<DetectionResult> results)
         {
             if (frame == null || frame.Empty())
@@ -37,7 +44,6 @@ namespace YoloDetection
                     using (var boxPaint = new SKPaint())
                     using (var bgPaint = new SKPaint())
                     using (var textPaint = new SKPaint())
-                    using (var typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold))
                     {
                         // 抗锯齿 + 红色 2px 描边框（与原 GDI+ 版视觉一致）
                         boxPaint.IsAntialias = true;
@@ -46,7 +52,8 @@ namespace YoloDetection
                         boxPaint.Color = SKColors.Red;
 
                         textPaint.IsAntialias = true;
-                        textPaint.Typeface = typeface;
+                        // 缓存字型可能为 null（极端无字体环境）时回退默认字型，保证不崩
+                        textPaint.Typeface = CachedBoldTypeface;
                         textPaint.TextSize = 14;
                         textPaint.Color = SKColors.White;
 

@@ -25,6 +25,7 @@ namespace YoloDetector.Tests
             T.Case("安格华-不可达地址有界返回false", TestConnection_BoundedTimeout);
             T.Case("安格华-桩方法契约固定", StubContract);
             T.Case("设备状态-使用率计算与格式化", DeviceStatus_Calculations);
+            T.Case("安格华-流地址模板三占位符全替换", StreamUrlTemplate);
         }
 
         private static void Ctor_EmptyIp()
@@ -115,6 +116,17 @@ namespace YoloDetector.Tests
 
             var gbCase = new DeviceStatus { DiskFree = 3L * 1024 * 1024 * 1024 };
             T.Eq("3.00 GB", gbCase.GetFormattedDiskFree(), "GB 格式化");
+        }
+
+        /// <summary>自定义模板的 {ip}/{port}/{channel} 三占位符必须全部替换、无残留</summary>
+        private static void StreamUrlTemplate()
+        {
+            var client = new AngehuaCameraApiClient(
+                "192.168.1.50", 8554, 10, "rtsp://{ip}:{port}/live/ch{channel}");
+            T.Eq("rtsp://192.168.1.50:8554/live/ch3", client.GetVideoStreamUrl(3),
+                "三占位符全替换");
+            T.Eq("rtsp://192.168.1.50:8554/live/ch0", client.GetVideoStreamUrl(0),
+                "通道 0 正常替换");
         }
     }
 }

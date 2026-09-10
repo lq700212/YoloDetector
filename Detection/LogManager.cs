@@ -93,12 +93,34 @@ namespace YoloDetection
 
         private static void Write(string message)
         {
-            // 落地通道与 UI 通道相互独立：落地由宿主决定写到哪里，UI 仅同步显示
-            _output(message);
+            // 落地通道与 UI 通道相互独立：落地由宿主决定写到哪里，UI 仅同步显示。
+            //
+            // 双通道各自 try/catch（v2.9.2 新增）：宿主注入的回调运行在调用方线程上
+            //（检测线程/看门狗 Timer 线程），一旦抛异常——
+            //   - 在检测循环的 catch 块里抛 → 逃出 DetectionLoop → 检测线程死亡；
+            //   - 在看门狗 Timer 回调里抛 → .NET Framework 下 ThreadPool 未处理异常
+            //     直接终结进程。
+            // 日志是辅助通道，绝不能有杀死主链路的能力；异常只写 Debug，不再上抛。
+            try
+            {
+                _output(message);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[LogManager] 落地通道异常(已吞掉): " + ex.Message);
+            }
+
             var sink = _uiSink;
             if (sink != null)
             {
-                sink(message);
+                try
+                {
+                    sink(message);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[LogManager] UI 通道异常(已吞掉): " + ex.Message);
+                }
             }
         }
     }

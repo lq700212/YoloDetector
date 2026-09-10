@@ -30,8 +30,11 @@ namespace YoloDetector.Configuration
             {
                 root = JObject.Parse(originalJson);
             }
-            catch (Newtonsoft.Json.JsonReaderException)
+            catch (Newtonsoft.Json.JsonException)
             {
+                // JsonReaderException（含"数组/标量等非对象 JSON"）与 JsonSerializationException
+                // 都是 JsonException 子类：一并视为"文件被手改坏"，交由调用方走整对象重建路径。
+                // 旧实现只接 JsonReaderException，某些畸形输入可能漏网抛给 UI 标定流程。
                 return null; // 文件被手改坏：交由调用方走整对象重建路径
             }
 

@@ -68,6 +68,14 @@ namespace YoloDetector.Tests
             T.Case("门检-人遮挡时跳过判定保持原状态", PersonOcclusionSkips);
             T.Case("门检-短暂变化不足防抖不翻转", ShortGlitchNoFlip);
             T.Case("门检-DoorConfig默认值与ToOptions夹紧", DoorConfigDefaults);
+            T.Case("门检-无基准时Update不判定无事件", NoBaselineNoDecision);
+            T.Case("门检-null与空帧安全", NullAndEmptySafe);
+            T.Case("门检-灰度帧基准采集可用", GrayFrameBaseline);
+            T.Case("门检-零防抖两帧内翻转", ZeroHoldFlipsFast);
+            T.Case("门检-候选来回抖动不翻转", FlappingNoFlip);
+            T.Case("门检-换分辨率自适应", ResolutionChangeAdapts);
+            T.Case("门检-ROI越界自动夹紧", RoiOutOfRangeClamped);
+            T.Case("门检-Dispose幂等且基准清空", DisposeClearsBaseline);
         }
 
         // ---------- 用例实现 ----------
@@ -289,6 +297,220 @@ namespace YoloDetector.Tests
 
             T.True(YoloDetector.Configuration.DoorConfig.UpdateRoiJson("{不是JSON", 0f, 0f, 0f, 0f) == null,
                 "坏 JSON 应返回 null");
+        }
+
+        /// <summary>无基准时 Update 只回显"无基准"快照：不判定、不翻转、不发事件</summary>
+        private static void NoBaselineNoDecision()
+        {
+            string path = BaselinePath();
+            try
+            {
+                var analyzer = new DoorMonitorAnalyzer(MakeOptions()); // 临时路径无文件 → 无基准
+                var events = new List<bool>();
+                analyzer.StateChanged += isOpen => events.Add(isOpen);
+
+                using (var frame = MakeFrame(100, true)) // 即使是"门开"画面
+                {
+                    var s = analyzer.Update(frame, new List<DetectionResult>(), 0);
+                    T.False(s.HasBaseline, "无基准时快照标记 HasBaseline=false");
+                    T.False(s.IsOpen, "无基准时 IsOpen 无意义（保持 false）");
+                    T.Eq(0f, s.DiffValue, "无基准时无差异值");
+                }
+                T.Eq(0, events.Count, "无基准时不得触发任何事件");
+                T.False(analyzer.IsOpen, "无基准时 IsOpen 保持 false");
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        /// <summary>null/空帧是防御性输入：采集与判定都不抛异常、不破坏已有状态</summary>
+        private static void NullAndEmptySafe()
+        {
+            string path = BaselinePath();
+            try
+            {
+                var analyzer = new DoorMonitorAnalyzer(MakeOptions());
+                analyzer.SetBaselineFromFrame(null); // 不抛
+                using (var empty = new Mat()) { analyzer.SetBaselineFromFrame(empty); } // 不抛
+                T.False(analyzer.HasBaseline, "坏输入不得产生基准");
+
+                var s = analyzer.Update(null, null, 0); // 不抛
+                T.False(s.HasBaseline, "null 帧快照无基准");
+
+                // 先采正常基准，再喂坏输入：基准不受影响
+                using (var frame = MakeFrame(100, false)) { analyzer.SetBaselineFromFrame(frame); }
+                T.True(analyzer.HasBaseline, "正常采集应有基准");
+                var s2 = analyzer.Update(null, null, 100);
+                T.True(s2.HasBaseline, "null 帧不得清除已有基准");
+                T.False(s2.IsOpen, "null 帧不得改变状态");
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        /// <summary>
+        /// 灰度帧兼容（v2.9.2）：BGR2GRAY 要求 3/4 通道，灰度输入旧实现直接抛异常
+        ///（UI 按钮 handler 无 try，会炸出未处理异常）。现直接克隆复用。
+        /// </summary>
+        private static void GrayFrameBaseline()
+        {
+            string path = BaselinePath();
+            try
+            {
+                var analyzer = new DoorMonitorAnalyzer(MakeOptions());
+                using (var gray = new Mat(200, 200, MatType.CV_8UC1, new Scalar(100)))
+                {
+                    analyzer.SetBaselineFromFrame(gray); // 不抛
+                }
+                T.True(analyzer.HasBaseline, "灰度帧应能采集基准");
+
+                using (var gray2 = new Mat(200, 200, MatType.CV_8UC1, new Scalar(100)))
+                {
+                    var s = analyzer.Update(gray2, new List<DetectionResult>(), 0);
+                    T.True(s.HasBaseline, "灰度帧判定应有基准");
+                    T.False(s.IsOpen, "同内容灰度帧应判门关");
+                }
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        /// <summary>StateHoldMs=0：候选出现后下一帧即翻转（免防抖场景的下限行为）</summary>
+        private static void ZeroHoldFlipsFast()
+        {
+            string path = BaselinePath();
+            try
+            {
+                var opts = MakeOptions();
+                opts.StateHoldMs = 0;
+                var analyzer = new DoorMonitorAnalyzer(opts);
+                var events = new List<bool>();
+                analyzer.StateChanged += isOpen => events.Add(isOpen);
+
+                using (var baseFrame = MakeFrame(100, false)) { analyzer.SetBaselineFromFrame(baseFrame); }
+                using (var openFrame = MakeFrame(100, true))
+                {
+                    analyzer.Update(openFrame, new List<DetectionResult>(), 0); // 首帧：记录候选
+                    var s = analyzer.Update(openFrame, new List<DetectionResult>(), 1); // 次帧：0ms 防抖满足
+                    T.True(s.IsOpen, "零防抖次帧即应翻转");
+                    T.Eq(1, events.Count, "应触发一次开门事件");
+                }
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        /// <summary>
+        /// 候选在"开/关"之间来回抖（始终不足防抖时长）：_pendingOpen 切换分支必须重置
+        /// 计时，长期抖动也不得翻转。覆盖 ShortGlitchNoFlip 之外的"持续抖动"场景。
+        /// </summary>
+        private static void FlappingNoFlip()
+        {
+            string path = BaselinePath();
+            try
+            {
+                var analyzer = new DoorMonitorAnalyzer(MakeOptions()); // Hold=1000ms
+                var events = new List<bool>();
+                analyzer.StateChanged += isOpen => events.Add(isOpen);
+
+                using (var baseFrame = MakeFrame(100, false)) { analyzer.SetBaselineFromFrame(baseFrame); }
+                using (var openFrame = MakeFrame(100, true))
+                using (var closed = MakeFrame(100, false))
+                {
+                    // 开400ms → 关（重置）→ 开400ms → 关… 持续 3 倍防抖时长
+                    long t = 0;
+                    for (int i = 0; i < 8; i++)
+                    {
+                        analyzer.Update(openFrame, new List<DetectionResult>(), t);
+                        t += 400;
+                        analyzer.Update(closed, new List<DetectionResult>(), t);
+                        t += 400;
+                    }
+                    T.Eq(0, events.Count, "来回抖动不得翻转，实际事件=" + events.Count);
+                    T.False(analyzer.IsOpen, "状态应保持门关");
+                }
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        /// <summary>换分辨率：基准 200x200，在 100x100 同内容帧上判定 → 缩放对齐后不误报不崩</summary>
+        private static void ResolutionChangeAdapts()
+        {
+            string path = BaselinePath();
+            try
+            {
+                var analyzer = new DoorMonitorAnalyzer(MakeOptions());
+                using (var baseFrame = MakeFrame(100, false)) { analyzer.SetBaselineFromFrame(baseFrame); }
+
+                using (var small = new Mat(100, 100, MatType.CV_8UC3, new Scalar(100, 100, 100)))
+                {
+                    var s = analyzer.Update(small, new List<DetectionResult>(), 0);
+                    T.True(s.HasBaseline, "换分辨率仍有基准");
+                    T.False(s.IsOpen, "同内容小图不得误报门开");
+                }
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        /// <summary>ROI 归一化坐标出界（手改 JSON 写坏）：换算自动夹紧，判定不抛异常</summary>
+        private static void RoiOutOfRangeClamped()
+        {
+            string path = BaselinePath();
+            try
+            {
+                var opts = MakeOptions();
+                opts.RoiX = 1.5f; opts.RoiY = -0.5f; opts.RoiW = 2f; opts.RoiH = 0f;
+                var roi = DoorMonitorAnalyzer.ComputeRoiPixels(opts, 200, 200);
+                T.True(roi.X >= 0 && roi.Y >= 0, "左上应在画面内");
+                T.True(roi.Right <= 200 && roi.Bottom <= 200, "右下应在画面内");
+                T.True(roi.Width >= 1 && roi.Height >= 1, "宽高至少 1px");
+
+                var analyzer = new DoorMonitorAnalyzer(opts);
+                using (var frame = MakeFrame(100, false)) { analyzer.SetBaselineFromFrame(frame); }
+                using (var frame2 = MakeFrame(100, false))
+                {
+                    var s = analyzer.Update(frame2, new List<DetectionResult>(), 0); // 不抛
+                    T.True(s.HasBaseline, "越界 ROI 夹紧后仍可工作");
+                }
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+        }
+
+        /// <summary>Dispose 幂等：释放后 HasBaseline=false；重复调用不抛</summary>
+        private static void DisposeClearsBaseline()
+        {
+            string path = BaselinePath();
+            try
+            {
+                var analyzer = new DoorMonitorAnalyzer(MakeOptions());
+                using (var frame = MakeFrame(100, false)) { analyzer.SetBaselineFromFrame(frame); }
+                T.True(analyzer.HasBaseline, "采集后应有基准");
+
+                analyzer.Dispose();
+                analyzer.Dispose(); // 幂等
+                T.False(analyzer.HasBaseline, "释放后基准清空");
+            }
+            finally
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
         }
     }
 }

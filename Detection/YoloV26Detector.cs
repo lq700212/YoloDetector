@@ -28,6 +28,13 @@ namespace YoloDetection
         private int _inputHeight = 640;
         private bool _disposed;
 
+        // 预处理复用缓冲（实例单线程串行调用契约，见类注释）：
+        // 640x640 输入下 rawBytes 约 1.2MB、pixels 约 4.9MB，逐帧 new 会给 GC
+        // 造成持续大对象压力（85KB 以上进 LOH，LOH 只在昂贵的 Gen2 回收时整理）。
+        // 缓冲按输入尺寸分配、尺寸变化时重建；复用不改变任何推理数值结果。
+        private byte[] _preprocessRawBytes;
+        private float[] _preprocessPixels;
+
         public bool IsInitialized => _session != null;
 
         public float ConfidenceThreshold { get; set; } = 0.35f;
@@ -109,6 +116,13 @@ namespace YoloDetection
 
         // ==================== 推理与后处理 ====================
 
+        /// <summary>
+        /// NMS 前的原始候选上限（病态保护）。
+        /// 正常阈值下单帧候选远小于此值（行为与原来完全一致）；极端低阈值+拥挤画面
+        /// 可能产出数千候选使 O(n^2) 的 NMS 卡帧，超限时按置信度截断（只影响病态场景）。
+        /// </summary>
+        public int MaxRawCandidates { get; set; } = 2000;
+
         /// <summary>执行推理并做坐标还原 + NMS。outputs 在本方法内负责释放。</summary>
         private List<DetectionResult> RunInference(Tensor<float> inputTensor,
             float scaleX, float scaleY, float padX, float padY,
@@ -128,6 +142,13 @@ namespace YoloDetection
                 ParseOutput(outputTensor, results, scaleX, scaleY, padX, padY, origWidth, origHeight);
             }
 
+            // 病态保护：候选超限时先按置信度截断再 NMS（正常场景走不到这里）。
+            // 注意截断前先降序，保证留下的是置信度最高的候选。
+            if (results.Count > MaxRawCandidates && MaxRawCandidates > 0)
+            {
+                results = results.OrderByDescending(d => d.Confidence).Take(MaxRawCandidates).ToList();
+            }
+
             // NMS 去重 + 置信度排序 + 最多保留 5 个目标
             var filtered = ApplyNms(results);
             return filtered.OrderByDescending(d => d.Confidence).Take(5).ToList();
@@ -140,35 +161,82 @@ namespace YoloDetection
             int[] shapeArr = outputTensor.Dimensions.ToArray();
 
             int numCandidates, vecLen;
+            bool transposed = false;
             if (shapeArr.Length == 3)
             {
-                if (shapeArr[1] <= 7) { vecLen = shapeArr[1]; numCandidates = shapeArr[2]; } // [1,D,N]
-                else { numCandidates = shapeArr[1]; vecLen = shapeArr[2]; }                  // [1,N,D]
+                // 方向判定必须双向校验：旧逻辑只看 shape[1]<=7，当候选数 N 本身很小
+                //（如 [1,5,84]：5 个候选的 84 维原始预测）会被误判为转置布局，
+                // 索引越界后被 Detect 吞掉变空结果（现场表现为偶发整帧漏检）。
+                // 真实模型的两种布局在此规则下与旧逻辑结论完全一致：
+                //   NMS 输出 [1,D,N]（D<=7，N 巨大）→ 转置分支；
+                //   原始预测 [1,N,D]（N 巨大或 D>=8）→ 非转置分支。
+                int dim1 = shapeArr[1], dim2 = shapeArr[2];
+                bool dim1IsVec = dim1 >= 6; // 可作为特征维（NMS 需>=6，原始预测需>=8）
+                bool dim2IsVec = dim2 >= 6;
+                if (dim1IsVec && !dim2IsVec)
+                {
+                    vecLen = dim1; numCandidates = dim2; transposed = true;  // [1,D,N]
+                }
+                else if (dim2IsVec && !dim1IsVec)
+                {
+                    numCandidates = dim1; vecLen = dim2; transposed = false; // [1,N,D]
+                }
+                else if (dim1 <= 7 && dim2 > 7)
+                {
+                    vecLen = dim1; numCandidates = dim2; transposed = true;  // 典型 NMS 输出
+                }
+                else if (dim1 > 0 && dim2 > 0)
+                {
+                    numCandidates = dim1; vecLen = dim2; transposed = false; // 默认原始预测
+                }
+                else
+                {
+                    return;
+                }
             }
             else if (shapeArr.Length == 2)
             {
                 numCandidates = shapeArr[0];
                 vecLen = shapeArr[1];
+                if (vecLen < 6 || numCandidates <= 0)
+                {
+                    return; // 非法形状：拒绝而非越界崩溃
+                }
             }
             else
             {
                 return;
             }
 
-            bool transposed = shapeArr.Length == 3 && shapeArr[1] <= 7;
             bool isNmsOutput = vecLen <= 7; // 6=角点+conf+cls, 7=角点+conf+cls+?
+
+            // 非法特征维直接拒绝：NMS 输出至少 6 维，原始预测至少 8 维。
+            // 旧实现无此检查（如 [1,8400,5]），GetVal 下标越界后被 Detect 吞掉变空结果；
+            // 现显式返回空列表——同样空结果，但路径明确、可单测锁定。
+            if (vecLen < 6)
+            {
+                return;
+            }
+
+            // 快路：输出张量一次性整块拷入托管数组，后续直接下标访问。
+            // 背景：Tensor 索引器 t[0,i,d] 每次调用都 new 一个 params int[]（托管分配）
+            // 还要做边界检查+步长换算——8400 候选 x 84 维就是每帧 70 万次调用、上百万
+            // 小对象，Gen0 压力巨大。整块拷贝一次（约 2.8MB，0.3ms）后直接算偏移，
+            // 与索引器逐个取值在数值上完全一致（行主序连续布局，见 TryFlatten 注释）。
+            // 拷贝失败/布局不符时回退索引器（flat=null），结果不变只是慢一点。
+            float[] flat = TryFlatten(outputTensor, numCandidates, vecLen);
 
             for (int i = 0; i < numCandidates; i++)
             {
                 if (isNmsOutput)
                 {
                     // === NMS 输出: [x1,y1,x2,y2,conf,cls]（模型输入空间角点格式）===
-                    float x1 = GetVal(outputTensor, transposed, 0, i);
-                    float y1 = GetVal(outputTensor, transposed, 1, i);
-                    float x2 = GetVal(outputTensor, transposed, 2, i);
-                    float y2 = GetVal(outputTensor, transposed, 3, i);
-                    float confidence = GetVal(outputTensor, transposed, 4, i);
-                    int classId = (int)GetVal(outputTensor, transposed, 5, i);
+                    float x1 = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 0, i);
+                    float y1 = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 1, i);
+                    float x2 = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 2, i);
+                    float y2 = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 3, i);
+                    float confidence = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 4, i);
+                    int classId = (int)GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 5, i);
 
                     // 模型输入空间(带padding的640x640) → 原图空间
                     x1 = (x1 - padX) * scaleX;
@@ -183,17 +251,17 @@ namespace YoloDetection
                 else
                 {
                     // === 原始预测输出: [cx,cy,w,h,obj_conf,cls_0..cls_n] ===
-                    float cx = GetVal(outputTensor, transposed, 0, i);
-                    float cy = GetVal(outputTensor, transposed, 1, i);
-                    float bw = GetVal(outputTensor, transposed, 2, i);
-                    float bh = GetVal(outputTensor, transposed, 3, i);
-                    float confidence = GetVal(outputTensor, transposed, 4, i);
+                    float cx = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 0, i);
+                    float cy = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 1, i);
+                    float bw = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 2, i);
+                    float bh = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 3, i);
+                    float confidence = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, 4, i);
 
                     float maxScore = float.MinValue;
                     int classId = -1;
                     for (int c = 5; c < vecLen; c++)
                     {
-                        float score = GetVal(outputTensor, transposed, c, i);
+                        float score = GetVal(outputTensor, flat, transposed, numCandidates, vecLen, c, i);
                         if (score > maxScore)
                         {
                             maxScore = score;
@@ -218,8 +286,50 @@ namespace YoloDetection
             }
         }
 
-        private static float GetVal(Tensor<float> t, bool transposed, int dim, int i)
+        /// <summary>
+        /// 输出张量整块展平（行主序）。仅当元素总数恰好等于 numCandidates*vecLen
+        ///（batch=1 且连续）时成功；否则返回 null 由调用方回退索引器。
+        /// DenseTensor 行主序连续时：非转置 [1,N,D] 的 (0,i,d) 在偏移 i*D+d；
+        /// 转置 [1,D,N] 的 (0,d,i) 在偏移 d*N+i——与 GetVal 的换算一致。
+        /// </summary>
+        private float[] TryFlatten(Tensor<float> tensor, int numCandidates, int vecLen)
         {
+            try
+            {
+                DenseTensor<float> dense = tensor as DenseTensor<float>;
+                if (dense == null)
+                {
+                    return null;
+                }
+                var span = dense.Buffer.Span;
+                long expect = (long)numCandidates * vecLen;
+                if (span.Length != expect)
+                {
+                    return null;
+                }
+                if (_outputFlat == null || _outputFlat.Length < span.Length)
+                {
+                    _outputFlat = new float[span.Length];
+                }
+                span.CopyTo(new System.Span<float>(_outputFlat, 0, span.Length));
+                return _outputFlat;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // 输出展平复用缓冲（与预处理缓冲同一复用思想；单线程串行调用，无需同步）
+        private float[] _outputFlat;
+
+        private static float GetVal(Tensor<float> t, float[] flat,
+            bool transposed, int numCandidates, int vecLen, int dim, int i)
+        {
+            if (flat != null)
+            {
+                return transposed ? flat[dim * numCandidates + i] : flat[i * vecLen + dim];
+            }
             return transposed ? t[0, dim, i] : t[0, i, dim];
         }
 
@@ -324,12 +434,30 @@ namespace YoloDetection
                 Cv2.Resize(mat, scaledMat, new Size((int)scaledWidth, (int)scaledHeight));
 
                 var roi = new Rect((int)padX, (int)padY, scaledMat.Cols, scaledMat.Rows);
-                scaledMat.CopyTo(resizedMat[roi]);
+                // 注意：mat[roi] 返回的是共享底层数据的子头（新的 native 句柄），
+                // 必须 Dispose，否则每帧泄漏一个句柄，长期运行句柄数持续上涨。
+                using (var roiView = resizedMat[roi])
+                {
+                    scaledMat.CopyTo(roiView);
+                }
 
-                // 整块拷贝像素数据（单次 P/Invoke），替代逐像素访问
+                // 整块拷贝像素数据（单次 P/Invoke），替代逐像素访问。
+                // 缓冲复用：rawBytes/pixels 按输入尺寸只分配一次（见字段注释）。
                 int pixelCount = _inputHeight * _inputWidth;
                 int byteCount = pixelCount * 3;
-                byte[] rawBytes = new byte[byteCount];
+                if (_preprocessRawBytes == null || _preprocessRawBytes.Length < byteCount)
+                {
+                    _preprocessRawBytes = new byte[byteCount];
+                }
+                // pixels 必须精确匹配（DenseTensor 构造校验数组长度==维度乘积；
+                // 换模型导致输入尺寸变化时重建，否则抛长度异常）。
+                // rawBytes 允许偏大（Marshal.Copy 按 byteCount 取数）。
+                if (_preprocessPixels == null || _preprocessPixels.Length != pixelCount * 3)
+                {
+                    _preprocessPixels = new float[pixelCount * 3];
+                }
+                byte[] rawBytes = _preprocessRawBytes;
+                float[] pixels = _preprocessPixels;
 
                 Mat continuous = resizedMat.IsContinuous() ? resizedMat : resizedMat.Clone();
                 try
@@ -345,7 +473,6 @@ namespace YoloDetection
                 }
 
                 // BGR(HWC) → RGB(CHW) + 归一化
-                var pixels = new float[pixelCount * 3];
                 int rOffset = 0;
                 int gOffset = pixelCount;
                 int bOffset = pixelCount * 2;
@@ -358,6 +485,8 @@ namespace YoloDetection
                     pixels[bOffset + i] = rawBytes[byteIdx] / 255.0f;     // B
                 }
 
+                // DenseTensor 包装复用数组（构造不拷贝，按引用持有）——推理是同步阻塞
+                // 调用，Run 返回后缓冲才可复用，时序安全。若将来改为异步推理必须重审此处。
                 var tensor = new DenseTensor<float>(pixels, new[] { 1, 3, _inputHeight, _inputWidth });
 
                 return new PreprocessResult

@@ -24,9 +24,9 @@ namespace YoloDetection
     ///   强光照渐变（夕阳直射移动的阴影）可能造成持续误报——此时重设基准即可。
     ///
     /// 线程契约：本类不是线程安全的。Update 只允许检测管道的工作线程串行调用；
-    /// SetBaseline 由 UI 线程调用（重设基准按钮）——与 Update 的互斥由宿主保证
-    /// （UI 调用前先经 SafeBeginInvoke 落到 UI 线程，检测线程每帧读基准图引用，
-    /// 替换是引用赋值原子操作，旧基准图由本类 Dispose 时统一释放）。
+    /// SetBaseline 由 UI 线程调用（重设基准按钮）——两者通过 _baselineLock 互斥：
+    /// Update 在锁内 Clone 基准快照后锁外使用，SetBaseline 在锁内 swap 并释放旧图，
+    /// 任何时刻检测线程都不会触碰正在被释放的对象（v2.9.2 修复 use-after-dispose）。
     /// </summary>
     public class DoorMonitorAnalyzer
     {
@@ -36,7 +36,16 @@ namespace YoloDetection
         private readonly DoorMonitorOptions _options;
 
         // 关门基准（灰度、ROI 裁剪尺寸）。null = 尚无基准（无法判定）。
-        // 检测线程每帧读引用；SetBaseline 原子替换引用，旧图在此处释放
+        //
+        // 并发模型（v2.9.2 修复前是 use-after-dispose 竞态）：
+        //   Update（检测线程，每帧）与 SetBaselineFromFrame（UI 线程，点击按钮）
+        //   并发执行。旧实现在 SetBaseline 里 swap 后立即 Dispose 旧图——若检测线程
+        //   正拿着同一 _baseline 引用做比对，就会读到已释放的 native 内存而崩溃
+        //   （窗口虽小但必现于"预览运行时点重设基准"的标准操作）。
+        //   现约定：_baseline 只在 _baselineLock 内读写；Update 在锁内 Clone 出
+        //   私有快照再使用（ROI 小图，拷贝开销可忽略），SetBaseline 在锁内 swap，
+        //   旧图在锁内 Dispose（此时检测线程不可能再持有该对象引用，安全）。
+        private readonly object _baselineLock = new object();
         private Mat _baseline;
 
         // 当前对外状态：true=门开
@@ -59,7 +68,16 @@ namespace YoloDetection
         public DoorMonitorOptions Options { get { return _options; } }
 
         /// <summary>是否已有关门基准（无基准时 Update 不产出状态判定）</summary>
-        public bool HasBaseline { get { return _baseline != null && !_baseline.Empty(); } }
+        public bool HasBaseline
+        {
+            get
+            {
+                lock (_baselineLock)
+                {
+                    return _baseline != null && !_baseline.Empty();
+                }
+            }
+        }
 
         /// <summary>当前门状态：true=开（相对关门基准差异超阈值）。无基准时无意义。</summary>
         public bool IsOpen { get { return _isOpen; } }
@@ -76,18 +94,43 @@ namespace YoloDetection
                 return;
             }
 
-            Rect roi = ComputeRoiPixels(frame.Cols, frame.Rows);
-            Mat cropped = new Mat(frame, roi);
-            Mat gray = new Mat();
-            Cv2.CvtColor(cropped, gray, ColorConversionCodes.BGR2GRAY);
-
-            Mat old = _baseline;
-            _baseline = gray;
-            if (old != null)
+            try
             {
-                old.Dispose();
+                Rect roi = ComputeRoiPixels(frame.Cols, frame.Rows);
+                // 灰度输入直接克隆（BGR2GRAY 要求 3/4 通道，对灰度图会抛异常；
+                // 正常链路帧源恒为 BGR，此分支只为防御测试/复用方传入灰度图）
+                Mat gray;
+                using (Mat cropped = new Mat(frame, roi))
+                {
+                    if (cropped.Channels() == 1)
+                    {
+                        gray = cropped.Clone();
+                    }
+                    else
+                    {
+                        gray = new Mat();
+                        Cv2.CvtColor(cropped, gray, ColorConversionCodes.BGR2GRAY);
+                    }
+                }
+
+                Mat old;
+                lock (_baselineLock)
+                {
+                    old = _baseline;
+                    _baseline = gray;
+                }
+                if (old != null)
+                {
+                    old.Dispose();
+                }
             }
-            cropped.Dispose();
+            catch (Exception ex)
+            {
+                // 采集失败不抛给 UI 线程（按钮 handler 无 try，会炸出未处理异常）：
+                // 记日志即可，旧基准（若有）继续有效。
+                LogManager.GeneralLog("[Door] 基准图采集失败(旧基准继续有效): " + ex.Message);
+                return;
+            }
 
             try
             {
@@ -99,7 +142,13 @@ namespace YoloDetection
                     {
                         System.IO.Directory.CreateDirectory(dir);
                     }
-                    Cv2.ImWrite(path, _baseline);
+                    lock (_baselineLock)
+                    {
+                        if (_baseline != null && !_baseline.Empty())
+                        {
+                            Cv2.ImWrite(path, _baseline);
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -117,14 +166,29 @@ namespace YoloDetection
         /// <param name="nowMs">当前时间戳（毫秒），参数化以便单元测试注入虚拟时钟</param>
         public DoorFrameSnapshot Update(Mat frame, List<DetectionResult> persons, long nowMs)
         {
+            bool hasBaseline;
+            Mat baselineCopy = null;
+            lock (_baselineLock)
+            {
+                hasBaseline = _baseline != null && !_baseline.Empty();
+                if (hasBaseline)
+                {
+                    baselineCopy = _baseline.Clone(); // 私有快照：锁外放心使用
+                }
+            }
+
             var snapshot = new DoorFrameSnapshot
             {
                 IsOpen = _isOpen,
-                HasBaseline = HasBaseline
+                HasBaseline = hasBaseline
             };
 
-            if (!HasBaseline || frame == null || frame.Empty())
+            if (!hasBaseline || frame == null || frame.Empty())
             {
+                if (baselineCopy != null)
+                {
+                    baselineCopy.Dispose();
+                }
                 return snapshot;
             }
 
@@ -135,35 +199,42 @@ namespace YoloDetection
             if (IsRoiOccludedByPerson(roi, persons))
             {
                 snapshot.PersonOccluded = true;
+                baselineCopy.Dispose();
                 return snapshot;
             }
 
-            // 裁当前帧门区域并转灰度；基准尺寸不同（换分辨率）时缩放对齐
-            Mat cropped = new Mat(frame, roi);
-            Mat curGray = new Mat();
-            Cv2.CvtColor(cropped, curGray, ColorConversionCodes.BGR2GRAY);
-            cropped.Dispose();
-
+            // 裁当前帧门区域并转灰度；基准尺寸不同（换分辨率）时缩放对齐。
+            // using 收口：旧实现 CvtColor 抛异常时会泄漏 cropped（灰度输入等边缘场景）。
+            // baselineCopy 在外层 finally 释放：任何中途异常都不泄漏。
             float diff;
             try
             {
-                Mat baseAligned = _baseline;
-                Mat resized = null;
-                if (baseAligned.Cols != curGray.Cols || baseAligned.Rows != curGray.Rows)
+                using (Mat cropped = new Mat(frame, roi))
+                using (Mat curGray = cropped.Channels() == 1 ? cropped.Clone() : new Mat())
                 {
-                    resized = new Mat();
-                    Cv2.Resize(baseAligned, resized, new Size(curGray.Cols, curGray.Rows));
-                    baseAligned = resized;
+                    if (cropped.Channels() != 1)
+                    {
+                        Cv2.CvtColor(cropped, curGray, ColorConversionCodes.BGR2GRAY);
+                    }
+
+                    Mat baseAligned = baselineCopy;
+                    using (Mat resized = (baseAligned.Cols != curGray.Cols || baseAligned.Rows != curGray.Rows)
+                        ? new Mat() : null)
+                    {
+                        if (resized != null)
+                        {
+                            Cv2.Resize(baseAligned, resized, new Size(curGray.Cols, curGray.Rows));
+                            baseAligned = resized;
+                        }
+
+                        diff = ComputeNormalizedMeanAbsDiff(curGray, baseAligned);
+                        snapshot.DiffValue = diff;
+                    }
                 }
-
-                diff = ComputeNormalizedMeanAbsDiff(curGray, baseAligned);
-                snapshot.DiffValue = diff;
-
-                resized?.Dispose();
             }
             finally
             {
-                curGray.Dispose();
+                baselineCopy.Dispose();
             }
 
             // 候选状态：差异超阈值 → 门开
@@ -319,6 +390,27 @@ namespace YoloDetection
         private static float Clamp01(float v)
         {
             return v < 0f ? 0f : (v > 1f ? 1f : v);
+        }
+
+        /// <summary>
+        /// 释放关门基准图（native 内存）。每次 Start 预览控制器都会新建分析器，
+        /// 不释放则每启停一次泄漏一张（小图但违背释放纪律）。
+        /// 由创建方（VideoDetectionController.Stop）在检测线程退出后调用；
+        /// 此时 Update 已不可能并发（锁+快照设计下即使并发也安全）。
+        /// Dispose 后对象仍可继续使用（SetBaseline 会重建基准），幂等。
+        /// </summary>
+        public void Dispose()
+        {
+            lock (_baselineLock)
+            {
+                if (_baseline != null)
+                {
+                    _baseline.Dispose();
+                    _baseline = null;
+                }
+            }
+            // _isOpen/_pendingSinceMs 等标量状态不清零：对象若被复用，
+            // 保持最后一次判定结论比悄悄回到"关"更诚实（调用方重建即全新）。
         }
     }
 

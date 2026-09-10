@@ -28,6 +28,7 @@ namespace YoloDetector.Tests
             T.Case("宿主转换-Bgra8888输入像素无损", BgraPixelsPreserved);
             T.Case("宿主转换-奇数宽度行对齐", OddWidthStride);
             T.Case("宿主转换-null抛参数异常", NullContract);
+            T.Case("宿主转换-Alpha通道被忽略", AlphaIgnored);
         }
 
         /// <summary>造一张每个像素都不同的渐变 SKBitmap（指定颜色类型），返回后调用方 Dispose</summary>
@@ -149,6 +150,49 @@ namespace YoloDetector.Tests
         {
             T.Throws<ArgumentNullException>(() => ((SKBitmap)null).ToDrawingBitmap(),
                 "null SKBitmap 应抛 ArgumentNullException");
+        }
+
+        /// <summary>
+        /// 输出为不透明 24bpp：源 alpha（0/255/128）不得影响 RGB 结果。
+        /// 锁定"跳过 alpha"语义，防止将来误把 alpha 混入颜色通道。
+        /// </summary>
+        private static void AlphaIgnored()
+        {
+            int width = 9, height = 4;
+            using (var opaque = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Opaque))
+            using (var transparent = new SKBitmap(width, height, SKColorType.Bgra8888, SKAlphaType.Opaque))
+            {
+                unsafe
+                {
+                    byte* po = (byte*)opaque.GetPixels();
+                    byte* pt = (byte*)transparent.GetPixels();
+                    for (int i = 0; i < width * height; i++)
+                    {
+                        byte b = (byte)(i % 256), g = (byte)((i * 2) % 256), r = (byte)((i * 3) % 256);
+                        po[i * 4 + 0] = b; po[i * 4 + 1] = g; po[i * 4 + 2] = r; po[i * 4 + 3] = 255;
+                        pt[i * 4 + 0] = b; pt[i * 4 + 1] = g; pt[i * 4 + 2] = r; pt[i * 4 + 3] = 0;
+                    }
+                }
+
+                using (var bmpO = opaque.ToDrawingBitmap())
+                using (var bmpT = transparent.ToDrawingBitmap())
+                {
+                    bool same = true;
+                    for (int y = 0; y < height && same; y++)
+                    {
+                        for (int x = 0; x < width && same; x++)
+                        {
+                            var co = bmpO.GetPixel(x, y);
+                            var ct = bmpT.GetPixel(x, y);
+                            if (co.R != ct.R || co.G != ct.G || co.B != ct.B)
+                            {
+                                same = false;
+                            }
+                        }
+                    }
+                    T.True(same, "不同 alpha 的同 RGB 输入应产出相同位图");
+                }
+            }
         }
     }
 }

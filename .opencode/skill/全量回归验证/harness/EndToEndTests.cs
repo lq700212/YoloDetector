@@ -24,6 +24,10 @@ namespace YoloDetector.Tests
             T.Case("端到端-全链路视频文件流跑通", FullChainWithFileSource);
             T.Case("端到端-姿态模型缺失自动降级为纯人员检测", EsdMissingPoseModelDegrades);
             T.Case("端到端-带ESD旁路视频流全链路", FullChainWithEsd);
+            T.Case("端到端-带门监测旁路全链路", FullChainWithDoor);
+            T.Case("端到端-EsdOptions无姿态路径保持纯检测", EsdOptionsWithoutPosePath);
+            T.Case("端到端-热更新与基准采集无链路返回false", HotUpdateWithoutChain);
+            T.Case("端到端-重复Start顶掉旧会话", RestartReplacesSession);
         }
 
         private static DetectionStartupOptions MakeOptions(string url)
@@ -230,6 +234,169 @@ namespace YoloDetector.Tests
 
                 T.Info("ESD端到端: Bitmap=" + bitmaps + " 结果=" + resultEvents +
                        " 触摸翻转=" + contactEvents + "(合成图无人,0属正常)");
+            }
+            finally
+            {
+                if (File.Exists(videoPath))
+                {
+                    File.Delete(videoPath);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 带门监测旁路的完整链路：无基准启动 → 预览/结果事件照常（门旁路只叠加不挡路）。
+        /// 基准路径用临时文件，不污染现场 door_baseline.png。
+        /// </summary>
+        private static void FullChainWithDoor()
+        {
+            string videoPath = FrameSourceTests.CreateTestVideo();
+            if (videoPath == null)
+            {
+                return;
+            }
+
+            string tmpBaseline = Path.Combine(Path.GetTempPath(), "opencode",
+                "zztest_e2e_door_" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".png");
+            try
+            {
+                int bitmaps = 0, resultEvents = 0, doorEvents = 0;
+                using (var controller = new VideoDetectionController(
+                    previewSink: bmp => { Interlocked.Increment(ref bitmaps); bmp.Dispose(); },
+                    detectionSink: list => Interlocked.Increment(ref resultEvents)))
+                {
+                    controller.DoorStateChanged += (s, open) => Interlocked.Increment(ref doorEvents);
+
+                    var options = MakeOptions(videoPath);
+                    options.DoorOptions = new YoloDetection.DoorMonitorOptions
+                    {
+                        RoiX = 0.1f, RoiY = 0.1f, RoiW = 0.3f, RoiH = 0.3f,
+                        DiffThreshold = 18f, StateHoldMs = 1500,
+                        BaselinePath = tmpBaseline, // 绝对路径：不大可能预先存在 → 无基准运行
+                        DrawOverlay = true // 覆盖"无基准黄框"绘制路径
+                    };
+
+                    controller.Start(options);
+                    T.True(controller.IsRunning, "带门监测旁路启动应成功");
+
+                    T.True(T.WaitFor(() => Volatile.Read(ref resultEvents) > 0, 20000),
+                        "检测结果事件应正常到达");
+                    T.True(T.WaitFor(() => Volatile.Read(ref bitmaps) >= 3, 20000),
+                        "预览 Bitmap 应持续输出(含门叠加绘制), 实际=" + bitmaps);
+
+                    // 门 ROI 热更新与基准采集在有链路时应成功（true 路径）。
+                    // 基准缓存每 10 帧更新一次，故等 12 帧以上再采集，保证缓存就绪。
+                    T.True(controller.TryUpdateDoorRoi(0.2f, 0.2f, 0.3f, 0.3f),
+                        "有门链路时 TryUpdateDoorRoi 应返回 true");
+                    T.True(T.WaitFor(() => Volatile.Read(ref bitmaps) >= 12, 20000),
+                        "等待门基准缓存就绪(>=12帧)");
+                    T.True(controller.SetDoorBaselineFromLatestFrame(),
+                        "有门链路且缓存就绪时基准采集应返回 true");
+
+                    controller.Stop();
+                    T.False(controller.IsRunning, "Stop 后应停止");
+                }
+
+                T.Info("门端到端: Bitmap=" + bitmaps + " 结果=" + resultEvents +
+                       " 门翻转=" + doorEvents + "(合成图无门,0属正常)");
+            }
+            finally
+            {
+                if (File.Exists(videoPath))
+                {
+                    File.Delete(videoPath);
+                }
+                try { if (File.Exists(tmpBaseline)) File.Delete(tmpBaseline); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// EsdOptions 给了但 PoseModelPath 为 null → ESD 旁路不装配，
+        /// 预览保持纯人员检测（覆盖 esdEnabled=false 分支，不抛不降级告警）。
+        /// </summary>
+        private static void EsdOptionsWithoutPosePath()
+        {
+            string videoPath = FrameSourceTests.CreateTestVideo();
+            if (videoPath == null)
+            {
+                return;
+            }
+
+            try
+            {
+                int resultEvents = 0;
+                using (var controller = new VideoDetectionController(
+                    previewSink: bmp => bmp.Dispose(),
+                    detectionSink: list => Interlocked.Increment(ref resultEvents)))
+                {
+                    var options = MakeOptions(videoPath);
+                    options.PoseModelPath = null; // 宿主 Enabled=false 时即传 null
+                    options.EsdOptions = new YoloDetection.EsdAnalysisOptions();
+
+                    controller.Start(options);
+                    T.True(controller.IsRunning, "无姿态路径时预览必须照常启动");
+                    T.True(T.WaitFor(() => Volatile.Read(ref resultEvents) > 0, 20000),
+                        "纯人员检测结果必须照常发布");
+                    controller.Stop();
+                }
+            }
+            finally
+            {
+                if (File.Exists(videoPath))
+                {
+                    File.Delete(videoPath);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 无运行链路时热更新/基准采集一律返回 false（调用方据此走"仅保存配置"分支）。
+        /// 覆盖 TryUpdateEsdRoi/TryUpdateDoorRoi/SetDoorBaselineFromLatestFrame 的 false 路径。
+        /// </summary>
+        private static void HotUpdateWithoutChain()
+        {
+            using (var controller = new VideoDetectionController(bmp => bmp.Dispose(), list => { }))
+            {
+                T.False(controller.TryUpdateEsdRoi(0.1f, 0.1f, 0.2f, 0.2f),
+                    "无链路 TryUpdateEsdRoi=false");
+                T.False(controller.TryUpdateDoorRoi(0.1f, 0.1f, 0.2f, 0.2f),
+                    "无链路 TryUpdateDoorRoi=false");
+                T.False(controller.SetDoorBaselineFromLatestFrame(),
+                    "无链路 SetDoorBaseline=false");
+                T.False(controller.IsRunning, "查询类调用不得改变运行态");
+            }
+        }
+
+        /// <summary>运行中重复 Start：旧会话被 Stop 顶掉，新会话正常出帧（幂等语义）</summary>
+        private static void RestartReplacesSession()
+        {
+            string videoPath = FrameSourceTests.CreateTestVideo();
+            if (videoPath == null)
+            {
+                return;
+            }
+
+            try
+            {
+                int bitmaps = 0;
+                using (var controller = new VideoDetectionController(
+                    previewSink: bmp => { Interlocked.Increment(ref bitmaps); bmp.Dispose(); },
+                    detectionSink: list => { }))
+                {
+                    controller.Start(MakeOptions(videoPath));
+                    T.True(T.WaitFor(() => Volatile.Read(ref bitmaps) >= 2, 20000),
+                        "旧会话应出帧");
+
+                    controller.Start(MakeOptions(videoPath)); // 顶掉重建
+                    T.True(controller.IsRunning, "重复 Start 后应处于运行态");
+                    int before = Volatile.Read(ref bitmaps);
+                    T.True(T.WaitFor(() => Volatile.Read(ref bitmaps) >= before + 2, 20000),
+                        "新会话应继续出帧");
+
+                    controller.Stop();
+                    controller.Dispose(); // Dispose 内含 Stop，幂等
+                    T.False(controller.IsRunning, "Stop 后应停止");
+                }
             }
             finally
             {

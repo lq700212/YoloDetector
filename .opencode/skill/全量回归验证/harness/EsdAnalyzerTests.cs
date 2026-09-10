@@ -66,6 +66,13 @@ namespace YoloDetector.Tests
             T.Case("管道-姿态异常不影响主检测", Pipeline_PoseExceptionSurvival);
             T.Case("管道-未配置ESD时零附加事件", Pipeline_NoEsdNoEvents);
             T.Case("ESD-Options热更新ROI夹紧且分析器立即可见", OptionsApplyRoiHotUpdate);
+            T.Case("ESD-null与空输入不崩", NullAndEmptySafe);
+            T.Case("ESD-poses少于persons按无关键点处理", PosesShorterThanPersons);
+            T.Case("ESD-零尺寸帧不崩", ZeroSizeFrame);
+            T.Case("ESD-时钟大跳变不清零过度不误判", ClockJumpClamped);
+            T.Case("ESD-时钟回拨安全", ClockBackwardsSafe);
+            T.Case("ESD-多人独立跟踪互不干扰", MultiPersonIndependent);
+            T.Case("ESD-结束事件携带最终时长", ReleaseEventCarriesElapsed);
         }
 
         /// <summary>造一个人体框（中心点+尺寸）</summary>
@@ -658,6 +665,135 @@ namespace YoloDetector.Tests
                 T.Eq((byte)160, shown.Item1, "开关打开恢复灰框: G=160");
                 T.Eq((byte)160, shown.Item2, "开关打开恢复灰框: R=160");
             }
+        }
+
+        // ---------- 鲁棒性与时钟异常（v2.9.2 补充：纯逻辑分支此前无用例锁定） ----------
+
+        /// <summary>null/空输入是合法防御输入：返回空快照，不抛异常、不污染轨迹</summary>
+        private static void NullAndEmptySafe()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var s1 = analyzer.Update(null, null, 1000, 800, 0);
+            T.Eq(0, s1.Persons.Count, "null 输入 → 空快照");
+            T.Eq(0, s1.ContactCount, "null 输入 → 零接触");
+
+            var s2 = analyzer.Update(
+                new List<DetectionResult>(), new List<PoseResult>(), 1000, 800, 100);
+            T.Eq(0, s2.Persons.Count, "空列表 → 空快照");
+        }
+
+        /// <summary>poses 比 persons 短（上游bug或降频丢帧）：缺失者按无关键点处理，不抛不误判</summary>
+        private static void PosesShorterThanPersons()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var persons = new List<DetectionResult>
+            {
+                Person(500, 400, 120, 260),
+                Person(800, 400, 120, 260)
+            };
+            // 只给第 0 个人姿态（手腕落区），第 1 个人缺姿态
+            var poses = new List<PoseResult>
+            {
+                PoseWithWrists(500, 300, 0.9f, -1000, -1000, 0.1f)
+            };
+
+            var s = analyzer.Update(persons, poses, 1000, 800, 0);
+            T.Eq(2, s.Persons.Count, "两人轨迹都应建立");
+        }
+
+        /// <summary>零尺寸帧（分辨率未就绪的极端帧）：ROI 换算退化但不抛异常</summary>
+        private static void ZeroSizeFrame()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var s = analyzer.Update(SinglePerson(), SinglePose(500, 300, 0.9f, 0, 0, 0.1f), 0, 0, 0);
+            T.True(s != null, "零尺寸帧应返回快照而非抛异常");
+        }
+
+        /// <summary>
+        /// 时钟大跳变钳制（dt>5000 按 0 处理）：接触中时时间戳突然跳 100 秒，
+        /// 不得一次性灌入巨量时长（防误判），且宽限语义下应正常退出接触。
+        /// </summary>
+        private static void ClockJumpClamped()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions()); // Hold=1500 Grace=2000
+            var hit = SinglePose(500, 300, 0.9f, 0, 0, 0.1f); // 左腕(500,300)落 ROI(400..600,160..400)+容差
+
+            analyzer.Update(SinglePerson(), hit, 1000, 800, 0);
+            var s1 = analyzer.Update(SinglePerson(), hit, 1000, 800, 1600);
+            T.True(s1.Persons[0].InContact, "1600ms 持续命中应进入接触");
+
+            // 时间跳变 +100 秒且无命中：dt 被钳制为 0，但已超宽限 → 退出接触、累计清零
+            var s2 = analyzer.Update(SinglePerson(),
+                SinglePose(-1000, -1000, 0.1f, -1000, -1000, 0.1f), 1000, 800, 101600);
+            T.False(s2.Persons[0].InContact, "超宽限后应退出接触");
+            T.Eq(0.0, s2.Persons[0].ContactElapsedMs, "退出后累计清零（未被跳变灌入巨量时长）");
+        }
+
+        /// <summary>时钟回拨（nowMs 倒退）：dt 按 0 处理，不抛异常、不回退状态机</summary>
+        private static void ClockBackwardsSafe()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions());
+            var hit = SinglePose(500, 300, 0.9f, 0, 0, 0.1f);
+
+            analyzer.Update(SinglePerson(), hit, 1000, 800, 5000);
+            var s = analyzer.Update(SinglePerson(), hit, 1000, 800, 1000); // 回拨到 1000
+            T.True(s != null && s.Persons.Count == 1, "回拨不得破坏跟踪");
+        }
+
+        /// <summary>多人独立：一人持续命中进入接触，另一人远离保持未接触，互不干扰</summary>
+        private static void MultiPersonIndependent()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions()); // Hold=1500
+            var persons = new List<DetectionResult>
+            {
+                Person(500, 400, 120, 260),  // A：手腕在 ROI
+                Person(100, 650, 120, 260)   // B：远离 ROI
+            };
+            var poses = new List<PoseResult>
+            {
+                PoseWithWrists(500, 300, 0.9f, -1000, -1000, 0.1f),
+                PoseWithWrists(100, 600, 0.9f, 120, 600, 0.9f)
+            };
+
+            analyzer.Update(persons, poses, 1000, 800, 0);
+            var s = analyzer.Update(persons, poses, 1000, 800, 1600);
+            T.Eq(2, s.Persons.Count, "两人都在快照中");
+            T.Eq(1, s.ContactCount, "仅一人接触");
+
+            // 按 TrackId 区分：先建轨迹的顺序即 persons 顺序（A=1, B=2）
+            EsdPersonStatus a = null, b = null;
+            foreach (var p in s.Persons)
+            {
+                if (p.TrackId == 1) a = p; else b = p;
+            }
+            T.True(a != null && a.InContact, "命中者 A 应接触");
+            T.True(b != null && !b.InContact, "远离者 B 不接触");
+        }
+
+        /// <summary>
+        /// 结束事件携带"本次触摸持续时长"（清零前最终值）：现场靠它区分"拍一下"
+        /// 与"长摸"。Grace_Expired 只断言了清零，此处锁定事件参数。
+        /// </summary>
+        private static void ReleaseEventCarriesElapsed()
+        {
+            var analyzer = new EsdContactAnalyzer(MakeOptions()); // Hold=1500 Grace=2000
+            double releaseElapsed = -1;
+            int releaseTrack = -1;
+            analyzer.ContactChanged += (trackId, inContact, elapsedMs) =>
+            {
+                if (!inContact) { releaseTrack = trackId; releaseElapsed = elapsedMs; }
+            };
+
+            var hit = SinglePose(500, 300, 0.9f, 0, 0, 0.1f);
+            var miss = SinglePose(-1000, -1000, 0.1f, -1000, -1000, 0.1f);
+            analyzer.Update(SinglePerson(), hit, 1000, 800, 0);
+            analyzer.Update(SinglePerson(), hit, 1000, 800, 1600); // 进入接触
+            analyzer.Update(SinglePerson(), miss, 1000, 800, 2000); // 宽限内丢失
+            analyzer.Update(SinglePerson(), miss, 1000, 800, 5000); // 超宽限退出
+
+            T.Eq(1, releaseTrack, "结束事件应携带正确 TrackId");
+            T.True(releaseElapsed >= 1500,
+                "结束事件应携带清零前最终时长(>=Hold), 实际=" + releaseElapsed);
         }
 
         // ==================== 管道 ESD 旁路集成 ====================

@@ -54,6 +54,11 @@
       <HintPath>..\..\..\..\bin\Debug\net472\Newtonsoft.Json.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- 合成张量直喂私有解析方法（ParseOutput 反射用例）需要 DenseTensor 类型 -->
+    <Reference Include="Microsoft.ML.OnnxRuntime">
+      <HintPath>..\..\..\..\bin\Debug\net472\Microsoft.ML.OnnxRuntime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <!-- MainForm 元数据里引用了 SunnyUI 控件类型，编译期需要可解析 -->
     <Reference Include="SunnyUI">
       <HintPath>..\..\..\..\bin\Debug\net472\SunnyUI.dll</HintPath>

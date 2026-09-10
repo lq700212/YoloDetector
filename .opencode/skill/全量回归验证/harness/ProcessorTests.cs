@@ -23,6 +23,7 @@ namespace YoloDetector.Tests
             T.Case("后处理-SizeFilter相对上限过滤", SizeFilterRatio);
             T.Case("后处理-Composite串联顺序生效", CompositeChained);
             T.Case("结果模型-边界属性计算", ResultModelEdges);
+            T.Case("后处理-SizeFilter与Composite空与非法输入", EmptyAndIllegal);
         }
 
         /// <summary>DetectionResult 的 Left/Top/Right/Bottom 是中心点+宽高的派生属性（显示与 NMS 都依赖）</summary>
@@ -157,6 +158,26 @@ namespace YoloDetector.Tests
                 FakeDetector.Box(100, 100, 5, 100)      // 太窄被 Default 丢弃
             };
             T.Eq(1, composite.Process(input, 1920, 1080).Count, "组合链后仅第1个保留");
+        }
+
+        /// <summary>空链/非法参数防御：空 Composite 原样透传；AddProcessor(null) 抛；各处理器 null 输入返空</summary>
+        private static void EmptyAndIllegal()
+        {
+            var empty = new CompositeResultProcessor();
+            var input = new List<DetectionResult> { FakeDetector.Box(100, 100, 60, 120) };
+            T.Eq(1, empty.Process(input, 640, 480).Count, "空组合链应原样透传");
+            T.Eq(0, empty.Process(null, 640, 480).Count, "空组合链 null 输入返空");
+
+            T.Throws<System.ArgumentNullException>(
+                () => empty.AddProcessor(null), "AddProcessor(null) 应抛 ArgumentNullException");
+
+            var f = new SizeFilterProcessor();
+            T.Eq(0, f.Process(null, 640, 480).Count, "SizeFilter null 输入返空");
+
+            // RemoveProcessor 不存在的处理器不抛（List.Remove 语义），链照常工作
+            var other = new DefaultResultProcessor();
+            empty.RemoveProcessor(other);
+            T.Eq(1, empty.Process(input, 640, 480).Count, "移除不存在的处理器后链正常");
         }
     }
 }

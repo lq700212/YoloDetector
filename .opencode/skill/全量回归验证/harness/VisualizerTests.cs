@@ -24,6 +24,7 @@ namespace YoloDetector.Tests
             T.Case("可视化-YoloBuiltin带结果尺寸不变", Builtin_WithResults);
             T.Case("可视化-两者空帧null契约", EmptyFrameContract);
             T.Case("可视化-工厂按类型创建正确实例", FactoryTypes);
+            T.Case("可视化-null结果与出界框不崩", NullResultsAndOutOfBounds);
         }
 
         private static void OpenCV_NoResults()
@@ -110,6 +111,40 @@ namespace YoloDetector.Tests
             // 未定义的枚举值 → 回退 OpenCV 实现（强转越界值模拟历史配置脏数据）
             T.True(VisualizerFactory.Create((VisualizerType)999) is OpenCVVisualizer,
                 "未知类型应回退到 OpenCV 可视化器");
+        }
+
+        /// <summary>
+        /// null 结果列表（Builtin 已覆盖，OpenCV 补上）与出界/贴顶框：
+        /// 绘制层不得因"坏框"抛异常（检测器坐标还原的极端输出也要能显示）。
+        /// </summary>
+        private static void NullResultsAndOutOfBounds()
+        {
+            using (var frame = TestUtil.RandomBgrMat(320, 240))
+            {
+                using (var drawn = new OpenCVVisualizer().Draw(frame, null))
+                {
+                    T.True(drawn != null, "OpenCV null 结果应输出有效帧");
+                    T.Eq(0L, TestUtil.DiffBytes(frame, drawn), "null 结果不得改动像素");
+                }
+
+                var nasty = new List<DetectionResult>
+                {
+                    FakeDetector.Box(-100, -50, 80, 60),     // 整体出界
+                    FakeDetector.Box(1000, 800, 500, 400),   // 远在画面外
+                    FakeDetector.Box(160, 5, 100, 120),      // 贴顶（标签 Y 钳制分支）
+                    FakeDetector.Box(160, 120, 0.5f, 0.5f)   // 退化小框
+                };
+                using (var d1 = new OpenCVVisualizer().Draw(frame, nasty))
+                {
+                    T.True(d1 != null, "OpenCV 出界框不得抛异常");
+                    T.Eq(320, d1.Cols, "尺寸不变");
+                }
+                using (var d2 = new YoloBuiltinVisualizer().Draw(frame, nasty))
+                {
+                    T.True(d2 != null, "Builtin 出界框不得抛异常");
+                    T.Eq(320, d2.Cols, "尺寸不变");
+                }
+            }
         }
     }
 }

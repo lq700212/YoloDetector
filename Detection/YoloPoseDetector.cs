@@ -39,6 +39,13 @@ namespace YoloDetection
         private int? _featureDim;
         private bool _disposed;
 
+        // 复用缓冲（与 YoloV26Detector 同一思想：实例串行调用，逐帧 new 大数组
+        // 会造成 LOH/GC 压力；姿态是"每人每帧"一次预处理，多人场景收益更大）。
+        // _cropRawBytes/_cropPixels 按模型输入尺寸分配；_candidateVec 按特征维分配。
+        private byte[] _cropRawBytes;
+        private float[] _cropPixels;
+        private float[] _candidateVec;
+
         /// <summary>
         /// 单帧最多做姿态推理的人数上限。工厂场景通常 1~5 人；
         /// 超出时丢弃置信度最低的（返回空关键点），保证最坏情况耗时有上界。
@@ -194,6 +201,9 @@ namespace YoloDetection
                 }
 
                 // 4. 坐标还原：模型输入空间 → 裁剪图空间(减pad、除scale) → 原图空间(+crop偏移)
+                // 注意：bestVec 引用的是实例复用缓冲 _candidateVec，必须在本方法内
+                // 立即消费完毕（下面的还原循环）——绝不能存下来跨帧/跨人使用，
+                // 否则下一次推理会把它覆盖。本方法即是这么做的，时序安全。
                 float scale = preprocess.Scale;
                 float padX = preprocess.PadX;
                 float padY = preprocess.PadY;
@@ -218,6 +228,10 @@ namespace YoloDetection
         /// <summary>
         /// 在输出张量中找分数最高的候选，把其完整特征行(5+3*K 个值)拷入 bestVec。
         /// 兼容 [1,C,N]（ultralytics 导出默认）与 [1,N,C] 两种布局。
+        ///
+        /// 性能：沿用主检测器的整块展平快路（Tensor 索引器每次调用分配 params 数组，
+        /// 8400 候选逐个扫描开销显著）；胜者特征行写入实例复用缓冲 _candidateVec，
+        /// 不再每候选 new 一个数组（原来是每帧每人最多 8400 次分配）。
         /// </summary>
         private void CollectBestCandidate(Tensor<float> tensor, ref float bestScore, ref float[] bestVec)
         {
@@ -242,23 +256,65 @@ namespace YoloDetection
                 return;
             }
 
+            float[] flat = TryFlattenPose(tensor, numCandidates, featureDim);
+
+            if (_candidateVec == null || _candidateVec.Length != featureDim)
+            {
+                _candidateVec = new float[featureDim];
+            }
+
             for (int i = 0; i < numCandidates; i++)
             {
-                float score = transposed ? tensor[0, 4, i] : tensor[0, i, 4];
+                float score = PoseVal(tensor, flat, transposed, numCandidates, featureDim, 4, i);
                 if (score <= bestScore || score < PersonConfidenceThreshold)
                 {
                     continue;
                 }
 
-                var vec = new float[featureDim];
                 for (int c = 0; c < featureDim; c++)
                 {
-                    vec[c] = transposed ? tensor[0, c, i] : tensor[0, i, c];
+                    _candidateVec[c] = PoseVal(tensor, flat, transposed, numCandidates, featureDim, c, i);
                 }
 
                 bestScore = score;
-                bestVec = vec;
+                bestVec = _candidateVec;
             }
+        }
+
+        /// <summary>姿态输出张量展平（与主检测器 TryFlatten 同一原理，行主序连续才成功）</summary>
+        private float[] TryFlattenPose(Tensor<float> tensor, int numCandidates, int featureDim)
+        {
+            try
+            {
+                DenseTensor<float> dense = tensor as DenseTensor<float>;
+                if (dense == null)
+                {
+                    return null;
+                }
+                var span = dense.Buffer.Span;
+                if (span.Length != numCandidates * featureDim)
+                {
+                    return null;
+                }
+                // 候选扫描是只读比对，不必拷入复用缓冲：直接 ToArray 一次拷贝即可。
+                // （主检测器需要复用是因为逐元素 TryAdd；这里拷贝一次的代价远小于
+                // 8400 次索引器调用，且避免实例缓冲被跨帧复写导致胜者数据污染。）
+                return span.ToArray();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static float PoseVal(Tensor<float> t, float[] flat,
+            bool transposed, int numCandidates, int featureDim, int dim, int i)
+        {
+            if (flat != null)
+            {
+                return transposed ? flat[dim * numCandidates + i] : flat[i * featureDim + dim];
+            }
+            return transposed ? t[0, dim, i] : t[0, i, dim];
         }
 
         // ==================== 预处理 ====================
@@ -292,11 +348,24 @@ namespace YoloDetection
                 Cv2.Resize(mat, scaled, new Size((int)scaledWidth, (int)scaledHeight));
 
                 var roi = new Rect((int)padX, (int)padY, scaled.Cols, scaled.Rows);
-                scaled.CopyTo(canvas[roi]);
+                // 子头必须释放（同 YoloV26Detector.PreprocessMat 的泄漏修复）
+                using (var roiView = canvas[roi])
+                {
+                    scaled.CopyTo(roiView);
+                }
 
                 int pixelCount = _inputHeight * _inputWidth;
                 int byteCount = pixelCount * 3;
-                byte[] rawBytes = new byte[byteCount];
+                if (_cropRawBytes == null || _cropRawBytes.Length < byteCount)
+                {
+                    _cropRawBytes = new byte[byteCount];
+                }
+                if (_cropPixels == null || _cropPixels.Length != pixelCount * 3)
+                {
+                    _cropPixels = new float[pixelCount * 3];
+                }
+                byte[] rawBytes = _cropRawBytes;
+                float[] pixels = _cropPixels;
 
                 Mat continuous = canvas.IsContinuous() ? canvas : canvas.Clone();
                 try
@@ -311,8 +380,7 @@ namespace YoloDetection
                     }
                 }
 
-                // BGR(HWC) → RGB(CHW) + /255 归一化
-                var pixels = new float[pixelCount * 3];
+                // BGR(HWC) → RGB(CHW) + /255 归一化（pixels 为实例复用缓冲）
                 int rOffset = 0;
                 int gOffset = pixelCount;
                 int bOffset = pixelCount * 2;

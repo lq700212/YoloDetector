@@ -69,8 +69,13 @@ namespace YoloDetector.Configuration
             /// <summary>根据模板生成完整的 RTSP 流地址</summary>
             public string GetRtspUrl(string ip, int channel)
             {
-                return RtspUrlFormat
-                    .Replace("{ip}", ip)
+                // 防御：现场手改 JSON 可能把模板写成 null/空（反序列化直接覆盖默认值），
+                // 此时回退内置默认模板而非抛 NullReferenceException。
+                string format = string.IsNullOrEmpty(RtspUrlFormat)
+                    ? "rtsp://{ip}:{port}/stream{channel}"
+                    : RtspUrlFormat;
+                return format
+                    .Replace("{ip}", ip ?? string.Empty)
                     .Replace("{port}", RtspPort.ToString())
                     .Replace("{channel}", channel.ToString());
             }

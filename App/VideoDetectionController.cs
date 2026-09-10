@@ -76,6 +76,18 @@ namespace YoloDetector.App
         private YoloDetection.IDetectionPipeline _pipeline;
         private YoloDetection.IFrameSource _frameSource;
 
+        // 已加载模型的路径跟踪（v2.9.2）：检测器跨会话复用，但用户可能按
+        //《ONNX模型获取指南》换了模型文件后改配置重新预览——旧实现无条件复用，
+        // 导致"改了配置却还是旧模型"的静默错误。路径变化时释放重载。
+        private string _loadedModelPath;
+        private string _loadedPoseModelPath;
+
+        // 门基准采集帧的互斥（v2.9.2）：_lastFrameForDoor 由帧源线程写入、
+        // UI 线程（重设基准按钮）读取。旧实现无锁：UI 读取后使用期间，
+        // 帧线程可能 Dispose 旧帧并替换，UI 拿到悬空 Mat 即崩溃。
+        // 约定：锁内只做引用 swap/Clone（快操作），耗时消费在锁外。
+        private readonly object _doorFrameLock = new object();
+
         /// <summary>
         /// 某人触摸静电杆状态翻转事件 (trackId, 是否开始触摸, 累计毫秒)。
         /// 仅在状态变化帧触发一次；后台线程触发，订阅方自行调度。
@@ -210,6 +222,18 @@ namespace YoloDetector.App
                 frameSource.Dispose();
                 pipeline.DetectionsUpdated -= OnDetectionsUpdated;
                 pipeline.FrameProcessed -= OnFrameProcessed;
+                var failedService = pipeline as YoloDetection.YoloDetectionService;
+                if (failedService != null)
+                {
+                    // 对称拆除旁路订阅（平时由 Stop 统一拆除；此失败路径走不到 Stop，
+                    // 不拆则管道虽被丢弃、委托引用链仍短暂残留，给 GC 添负担）。
+                    failedService.EsdContactChanged -= HandlePipelineEsdChanged;
+                    failedService.DoorStateChanged -= HandlePipelineDoorChanged;
+                    if (failedService.DoorAnalyzer != null)
+                    {
+                        failedService.DoorAnalyzer.Dispose();
+                    }
+                }
                 pipeline.Dispose();
                 throw new InvalidOperationException("RTSP流连接失败，请检查流地址与相机配置");
             }
@@ -236,14 +260,25 @@ namespace YoloDetector.App
                 _pipeline.FrameProcessed -= OnFrameProcessed;
 
                 var esdService = _pipeline as YoloDetection.YoloDetectionService;
+                YoloDetection.DoorMonitorAnalyzer doorAnalyzer = null;
                 if (esdService != null)
                 {
                     esdService.EsdContactChanged -= HandlePipelineEsdChanged;
                     esdService.DoorStateChanged -= HandlePipelineDoorChanged;
+                    // 门分析器是本控制器 per-Start 新建的（含基准图 native 内存），
+                    // 会话结束即释放（检测线程已在 pipeline.Dispose 内 join 退出，
+                    // 此时释放无并发）。姿态/主检测器跨会话复用，不在此释放。
+                    doorAnalyzer = esdService.DoorAnalyzer;
+                    esdService.DoorAnalyzer = null;
                 }
 
                 _pipeline.Dispose();
                 _pipeline = null;
+
+                if (doorAnalyzer != null)
+                {
+                    doorAnalyzer.Dispose();
+                }
             }
         }
 
@@ -274,25 +309,34 @@ namespace YoloDetector.App
                 throw new System.IO.FileNotFoundException("YOLO模型文件不存在", options.ModelPath);
             }
 
-            if (_detector == null || !_detector.IsInitialized)
+            // 路径不变才复用；换模型后必须重载（见字段注释）
+            bool samePath = _detector != null && _detector.IsInitialized &&
+                string.Equals(_loadedModelPath, options.ModelPath, System.StringComparison.OrdinalIgnoreCase);
+            if (samePath)
             {
-                if (_detector != null)
-                {
-                    _detector.Dispose();
-                }
-
-                var detector = new YoloDetection.YoloV26Detector();
-                try
-                {
-                    detector.Initialize(options.ModelPath);
-                }
-                catch
-                {
-                    detector.Dispose();
-                    throw;
-                }
-                _detector = detector;
+                _detector.ConfidenceThreshold = options.ConfidenceThreshold;
+                _detector.NmsThreshold = options.NmsThreshold;
+                return;
             }
+
+            if (_detector != null)
+            {
+                _detector.Dispose();
+                _detector = null;
+            }
+
+            var detector = new YoloDetection.YoloV26Detector();
+            try
+            {
+                detector.Initialize(options.ModelPath);
+            }
+            catch
+            {
+                detector.Dispose();
+                throw;
+            }
+            _detector = detector;
+            _loadedModelPath = options.ModelPath;
 
             _detector.ConfidenceThreshold = options.ConfidenceThreshold;
             _detector.NmsThreshold = options.NmsThreshold;
@@ -310,25 +354,31 @@ namespace YoloDetector.App
                 throw new System.IO.FileNotFoundException("姿态模型文件不存在", options.PoseModelPath);
             }
 
-            if (_poseDetector == null || !_poseDetector.IsInitialized)
+            // 路径不变才复用（与 EnsureDetector 同一语义）
+            if (_poseDetector != null && _poseDetector.IsInitialized &&
+                string.Equals(_loadedPoseModelPath, options.PoseModelPath, System.StringComparison.OrdinalIgnoreCase))
             {
-                if (_poseDetector != null)
-                {
-                    _poseDetector.Dispose();
-                }
-
-                var poseDetector = new YoloDetection.YoloPoseDetector();
-                try
-                {
-                    poseDetector.Initialize(options.PoseModelPath);
-                }
-                catch
-                {
-                    poseDetector.Dispose();
-                    throw;
-                }
-                _poseDetector = poseDetector;
+                return;
             }
+
+            if (_poseDetector != null)
+            {
+                _poseDetector.Dispose();
+                _poseDetector = null;
+            }
+
+            var poseDetector = new YoloDetection.YoloPoseDetector();
+            try
+            {
+                poseDetector.Initialize(options.PoseModelPath);
+            }
+            catch
+            {
+                poseDetector.Dispose();
+                throw;
+            }
+            _poseDetector = poseDetector;
+            _loadedPoseModelPath = options.PoseModelPath;
 
         }
 
@@ -371,8 +421,13 @@ namespace YoloDetector.App
                 return;
             }
 
-            OpenCvSharp.Mat old = _lastFrameForDoor;
-            _lastFrameForDoor = frame.Clone();
+            OpenCvSharp.Mat clone = frame.Clone();
+            OpenCvSharp.Mat old;
+            lock (_doorFrameLock)
+            {
+                old = _lastFrameForDoor;
+                _lastFrameForDoor = clone;
+            }
             if (old != null)
             {
                 old.Dispose();
@@ -478,13 +533,34 @@ namespace YoloDetector.App
             var esdService = _pipeline as YoloDetection.YoloDetectionService;
             YoloDetection.DoorMonitorAnalyzer analyzer = esdService != null ? esdService.DoorAnalyzer : null;
 
-            OpenCvSharp.Mat latest = _lastFrameForDoor;
-            if (analyzer == null || latest == null || latest.Empty())
+            // 锁内 Clone 出私有副本再使用：帧线程可能在我们使用期间替换并释放缓存，
+            // 直接引用 _lastFrameForDoor 会造成 use-after-dispose（见字段注释）。
+            OpenCvSharp.Mat snapshot = null;
+            lock (_doorFrameLock)
             {
+                if (_lastFrameForDoor != null && !_lastFrameForDoor.Empty())
+                {
+                    snapshot = _lastFrameForDoor.Clone();
+                }
+            }
+
+            if (analyzer == null || snapshot == null || snapshot.Empty())
+            {
+                if (snapshot != null)
+                {
+                    snapshot.Dispose();
+                }
                 return false;
             }
 
-            analyzer.SetBaselineFromFrame(latest);
+            try
+            {
+                analyzer.SetBaselineFromFrame(snapshot);
+            }
+            finally
+            {
+                snapshot.Dispose();
+            }
             return true;
         }
 
@@ -494,10 +570,15 @@ namespace YoloDetector.App
         /// <summary>清理门基准采集用的最近帧缓存。</summary>
         private void DisposeLastFrameForDoor()
         {
-            if (_lastFrameForDoor != null)
+            OpenCvSharp.Mat old;
+            lock (_doorFrameLock)
             {
-                _lastFrameForDoor.Dispose();
+                old = _lastFrameForDoor;
                 _lastFrameForDoor = null;
+            }
+            if (old != null)
+            {
+                old.Dispose();
             }
         }
     }

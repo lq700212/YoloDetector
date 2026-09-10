@@ -19,6 +19,7 @@ namespace YoloDetector.Tests
         public static void RunAll()
         {
             T.Case("文件日志-写入创建目录与内容", WriteCreatesFileAndContent);
+            T.Case("文件日志-并发写入不抛", ConcurrentWrites);
             T.Case("文件日志-Close幂等且关闭后静默", CloseContract);
         }
 
@@ -45,6 +46,48 @@ namespace YoloDetector.Tests
             }
             T.True(content.Contains(marker), "写入的标记文本应立即落地可见");
             T.True(content.Contains("程序启动"), "首次初始化应写『程序启动』分隔标记");
+        }
+
+        /// <summary>
+        /// 并发压力：8 线程 x 50 条同时写入不抛异常（Logger 承诺线程安全）。
+        /// 注意：本用例必须在 CloseContract 之前（Close 后写入静默，数行数无意义）。
+        /// </summary>
+        private static void ConcurrentWrites()
+        {
+            var threads = new System.Collections.Generic.List<System.Threading.Thread>();
+            var errors = new System.Collections.Generic.List<string>();
+            for (int i = 0; i < 8; i++)
+            {
+                int id = i;
+                var t = new System.Threading.Thread(() =>
+                {
+                    try
+                    {
+                        for (int j = 0; j < 50; j++)
+                        {
+                            YoloDetector.Infrastructure.Logging.Logger.Write(
+                                "并发压测 T" + id + "-" + j);
+                        }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        lock (errors) { errors.Add(ex.GetType().Name); }
+                    }
+                });
+                t.IsBackground = true;
+                threads.Add(t);
+            }
+
+            foreach (var t in threads) t.Start();
+            foreach (var t in threads) t.Join(15000);
+            foreach (var t in threads)
+            {
+                T.False(t.IsAlive, "写线程应全部在 15 秒内结束");
+            }
+            lock (errors)
+            {
+                T.Eq(0, errors.Count, "并发写入不得抛异常");
+            }
         }
 
         private static void CloseContract()

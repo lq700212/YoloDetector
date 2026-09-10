@@ -26,6 +26,9 @@ namespace YoloDetector.Tests
             T.Case("UI拖拽-误触点击不产生ROI", Drag_ClickIgnored);
             T.Case("UI拖拽-反向拖拽矩形规范化", Drag_ReversedRect);
             T.Case("UI拖拽-未按下时Drag被忽略", Drag_IgnoreWithoutPress);
+            T.Case("UI拖拽-重复Press重开始与Reset复位", Drag_RepressAndReset);
+            T.Case("UI拖拽-边界5px恰好有效", Drag_ExactBoundary);
+            T.Case("UI坐标-负坐标夹紧到0", Zoom_NegativeClamp);
         }
 
         private const float Eps = 0.01f;
@@ -182,6 +185,58 @@ namespace YoloDetector.Tests
             sel.Drag(200f, 200f);
             T.False(sel.IsSelecting, "未按下时 Drag 不应进入选框状态");
             T.Eq(0f, sel.CurrentRectPixels.W, "未按下时无实时矩形");
+        }
+
+        /// <summary>中途再次 Press = 放弃旧框选重开始；Reset = 强制复位后 Release 失败</summary>
+        private static void Drag_RepressAndReset()
+        {
+            var sel = new RoiSelectionState();
+            sel.Press(10f, 10f);
+            sel.Drag(500f, 500f);
+            sel.Press(100f, 100f); // 重按：旧起点作废
+            sel.Drag(150f, 160f);
+
+            EsdRoiRect rect;
+            T.True(sel.Release(150f, 160f, out rect), "重按后的框选应有效");
+            T.Eq(100f, rect.X, "起点应为第二次 Press");
+            T.Eq(50f, rect.W, "宽度按第二次起点计算");
+
+            var sel2 = new RoiSelectionState();
+            sel2.Press(10f, 10f);
+            sel2.Drag(400f, 400f);
+            sel2.Reset(); // 中途强制复位（如窗体关闭清理）
+            T.False(sel2.IsSelecting, "Reset 后退出选框状态");
+            T.False(sel2.Release(400f, 400f, out rect), "Reset 后 Release 应返回 false");
+            T.Eq(0f, rect.W, "Reset 后矩形为空");
+        }
+
+        /// <summary>MinDragPixels=5 的边界：W/H 恰为 5 有效（>= 判定），任一边不足无效</summary>
+        private static void Drag_ExactBoundary()
+        {
+            var sel = new RoiSelectionState();
+            sel.Press(0f, 0f);
+            EsdRoiRect rect;
+            T.True(sel.Release(5f, 5f, out rect), "5x5 恰达阈值应有效");
+            T.Eq(5f, rect.W, "边界宽度=5");
+
+            var sel2 = new RoiSelectionState();
+            sel2.Press(0f, 0f);
+            T.False(sel2.Release(4f, 100f, out rect), "宽 4px（<5）应判误触");
+            T.Eq(0f, rect.W, "误触矩形为空");
+
+            var sel3 = new RoiSelectionState();
+            sel3.Press(0f, 0f);
+            T.False(sel3.Release(100f, 4f, out rect), "高 4px（<5）应判误触");
+        }
+
+        /// <summary>控件左上之外的负坐标夹紧到 0（用户从控件外起拖的场景）</summary>
+        private static void Zoom_NegativeClamp()
+        {
+            float nx, ny;
+            ZoomMapping.TryMapControlToNormalized(
+                -50f, -30f, 800, 400, 1920, 1080, out nx, out ny);
+            T.Eq(0f, nx, "负 X 夹紧到 0");
+            T.Eq(0f, ny, "负 Y 夹紧到 0");
         }
     }
 }

@@ -624,6 +624,13 @@ namespace YoloDetector.UI
 
             long count = Interlocked.Increment(ref _detectionCount);
 
+            // 开关守卫（v2.9.2）：字符串插值在调用前就已求值——无守卫时即使日志关闭，
+            // 每帧仍要构造一次字符串（小对象但每帧一次，积少成多）。先判开关再组装。
+            if (!LogManager.EnableDetectionResultLog)
+            {
+                return;
+            }
+
             if (_lastDetections.Count > 0)
             {
                 var d = _lastDetections[0];
