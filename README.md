@@ -1,19 +1,36 @@
-﻿# YoloDetector — 摄像头实时人员检测系统
+﻿<div align="center">
 
-基于 **WinForms (.NET Framework 4.7.2) + OpenCvSharp4 + ONNX Runtime** 的 RTSP 视频流实时目标检测工具：接入网络摄像头，使用 YOLO ONNX 模型对画面逐帧推理，检测结果（检测框 + 类别 + 置信度）实时叠加显示在预览窗口。**推理全程在本机完成，不依赖 Python 环境**。
-<img width="1282" height="832" alt="image" src="https://github.com/user-attachments/assets/afe82f04-2a00-4192-8c70-d507c52a1787" />
+# YoloDetector
 
+**RTSP 摄像头实时人员检测 + 静电杆触摸 / 门状态联防 —— WinForms + OpenCvSharp + ONNX Runtime，全离线零 NuGet**
 
-在人员检测之上还内置了**静电杆触摸检测**（工厂防静电场景）：对人体做姿态估计取手腕关键点，判定是否落入静电杆区域并持续触摸——详见[功能特性](#功能特性)与[静电杆触摸检测配置](#静电杆触摸检测配置esdconfigjson)。
+![.NET Framework 4.7.2](https://img.shields.io/badge/.NET_Framework-4.7.2_C%23_7.3-5C2D91?logo=dotnet)
+![OpenCvSharp 4.10](https://img.shields.io/badge/OpenCvSharp-4.10-5C3EE8)
+![ONNX Runtime 1.20](https://img.shields.io/badge/ONNX_Runtime-1.20-005CED)
+![regression tests](https://img.shields.io/badge/regression_tests-180_passing-brightgreen)
+![platform](https://img.shields.io/badge/platform-x64_WinForms-blue)
+
+接入网络摄像头后逐帧 YOLO 推理，检测框 + 类别 + 置信度实时叠加到预览窗口，**推理全程在本机完成，不依赖 Python 环境**。在人员检测之上还内置了工厂防静电两件套：
+
+- **静电杆触摸检测**——YOLO-pose 人体关键点判定手腕是否落入静电杆区域并持续触摸；
+- **门状态检测**——关门基准比对自动识别"门被打开"并告警。
+
+`Detection/` 检测域是**可整体迁移的独立类库**（net472 + netstandard2.0 双目标、Windows/Linux native 运行库全部 vendor 入 git），整个目录复制到任何 .NET 项目即可接入目标检测能力。
+
+<img width="1282" height="832" alt="运行效果：预览画面叠加 YOLO 检测框与静电杆 ROI" src="https://github.com/user-attachments/assets/afe82f04-2a00-4192-8c70-d507c52a1787" />
+
+</div>
+
+---
 
 ## 功能特性
 
-- 📹 **RTSP 流接入**：OpenCV VideoCapture 逐帧捕获，单槽位缓冲自动丢帧防积压
-- 🎯 **YOLO 实时推理**：ONNX Runtime 加载模型，独立检测线程，UI 不卡顿
-- ⚡ **静电杆触摸检测**（可选旁路）：YOLO-pose 人体关键点 + 静电杆 ROI 区域规则——手腕进入标定区域并持续达到阈值时长即判定"正在触摸"，预览画面叠加黄色 ROI 框/接触状态/手腕落点，日志面板提示状态翻转；**ROI 支持预览画面上鼠标拖拽框选标定（实时生效并自动保存）**；判定纯几何规则完全可解释，ROI/时长/容差全配置化，关闭后零开销
-- 🚪 **门状态检测**（可选旁路）：关门基准比对方案（无需训练模型）——标定门区域 + 采集关门基准图后，自动识别门被打开/关闭并日志告警；亮度归一化抗光照漂移、人体遮挡自动排除、1.5 秒防抖；支持拖拽标定门区域与一键重设基准
+- 📹 **RTSP 流接入**：OpenCV VideoCapture 逐帧捕获，单槽位缓冲自动丢帧防积压；断流自愈——普通断流约 1.5 秒自动重连，静默半开连接由心跳看门狗强制重建
+- 🎯 **YOLO 实时推理**：ONNX Runtime 加载模型，独立检测线程，UI 不卡顿；换模型只改一个配置字段，模型实例跨预览会话复用
+- ⚡ **静电杆触摸检测**（可选旁路）：YOLO-pose 手腕关键点 + 静电杆 ROI 规则——手腕进入标定区域并持续达到阈值时长即判定"正在触摸"，预览画面叠加黄色 ROI 框 / 接触状态 / 手腕落点；**ROI 支持预览画面上鼠标拖拽框选标定（实时生效并自动保存）**；判定纯几何规则完全可解释，ROI / 时长 / 容差全配置化，关闭后零开销
+- 🚪 **门状态检测**（可选旁路）：关门基准比对方案（无需训练模型）——标定门区域 + 采集关门基准图后，自动识别门开/关并日志告警；亮度归一化抗光照漂移、人体遮挡自动排除、1.5 秒防抖；支持拖拽标定与一键重设基准
 - 🖼️ **双可视化方案**：Skia 红框（YoloBuiltin）/ OpenCV 绿框（OpenCV），配置文件一键切换；绘制后端跨平台（Windows/Linux 效果一致）
-- 🧩 **检测模块可整体迁移**：`Detection/` 为独立类库（net472 + netstandard2.0 双目标），托管与 native 依赖（Windows + Linux）全部内置仓库，离线编译、整目录复制即接入，Linux 上检测能力开箱可用（见 `docs/MODULE.md`）
+- 🧩 **检测模块可整体迁移**：`Detection/` 为独立类库（net472 + netstandard2.0 双目标），托管与 native 依赖（Windows + Linux）全部内置仓库，离线编译、整目录复制即接入（见 `docs/MODULE.md`）
 - 🔌 **多品牌相机解耦**：`ICameraApi` 接口 + 工厂模式，当前内置安格华（ANGEHUA）实现，海康/大华可按同一模式扩展
 - 🎛️ **设备管理**：连接测试（TCP 探测带超时）、设备状态轮询（防重入）、RTSP 拉流 / RTMP 推流开关
 - 📋 **分级日志**：文件日志（logs/log_日期.txt）+ UI 日志面板；YOLO 详细日志与每帧结果日志独立开关，默认关闭防刷屏
@@ -30,7 +47,27 @@
 | Newtonsoft.Json 13.0.3 | 配置序列化（已 vendor，离线编译） |
 | [SunnyUI](https://github.com/yhuse/SunnyUI) 3.9.8 | WinForms 界面控件库（已 vendor，离线编译） |
 
-> 全部依赖 DLL 均内置仓库 `Detection\libs\`，**编译与运行零 NuGet、零网络**——新机器 `git clone` 后直接构建即可。
+> 全部依赖 DLL 均内置仓库 `Detection\libs\`（含 native 运行库，Windows 与 Linux 双平台共约 201MB），**编译与运行零 NuGet、零网络**——新机器 `git clone` 后直接构建即可。
+
+## 架构
+
+```mermaid
+graph LR
+    UI["UI 层<br/>MainForm（纯交互 + 布局 partial）"]
+    APP["编排层 App<br/>VideoDetectionController / CameraController"]
+    DET["检测域 Detection【独立类库 YoloDetection】<br/>帧源 → 检测管道 → 后处理 → 可视化"]
+    CAM["相机域 Cameras<br/>ICameraApi + 品牌实现 + 工厂"]
+    INF["Infrastructure / Configuration<br/>文件日志 / 配置加载"]
+
+    UI --> APP
+    APP --> DET
+    APP --> CAM
+    DET --> INF
+    CAM --> INF
+```
+
+- 依赖方向严格单向：`UI → App → Detection/Cameras → Infrastructure/Configuration`，严禁反向；UI 层只接触 Bitmap 与结果快照，禁止接触 OpenCV Mat
+- `Detection/` 编译为独立类库 `YoloDetector.Detection.dll`，禁止引用宿主业务命名空间（日志经委托注入、配置经方法参数注入），整目录复制到其他解决方案即可迁移
 
 ## 项目结构
 
@@ -39,21 +76,20 @@ YoloDetector/
 ├── Program.cs              入口
 ├── UI/                     视图层（MainForm 纯交互 + Layout 布局 partial）
 ├── App/                    编排层（视频检测控制器 / 相机连接控制器 / SKBitmap 显示转换）
-├── Detection/              检测域【独立类库】：帧源 / 检测管道 / YOLO检测器 / 姿态检测器 / 静电接触分析 / 可视化器 / 后处理器
-│   └── libs/               离线托管依赖（已入 git）+ libs/native/ 运行库（collect 脚本收集）
+├── Detection/              检测域【独立类库】：帧源 / 检测管道 / YOLO检测器 / 姿态检测器 / 静电接触分析 / 门监测 / 可视化器 / 后处理器
+│   ├── libs/               离线托管依赖（已入 git）+ libs/native/ 运行库（Windows/Linux 双平台）
+│   ├── yoloConfig.json     YOLO 运行参数
+│   ├── esdConfig.json      静电杆触摸检测参数
+│   ├── doorConfig.json     门状态检测参数
+│   └── model/*.onnx        模型文件（yolo26n 人员检测 + yolo11n-pose 姿态）
 ├── Cameras/                相机域：ICameraApi 抽象 + 品牌实现 + 工厂
 ├── Configuration/          配置层：AppConfig 加载器 + 配置模型
 ├── Infrastructure/         基础设施：文件日志
 ├── tools/                  collect-native.ps1（native 收集）/ download_pose_model.py（姿态模型下载）
 ├── appsettings.json        主配置（激活相机品牌）
 ├── cameraConfigs/*.json    各品牌相机参数
-├── Detection/yoloConfig.json      YOLO 运行参数
-├── Detection/esdConfig.json       静电杆触摸检测参数
-├── Detection/model/*.onnx         模型文件（yolo26n 人员检测 + yolo11n-pose 姿态）
 └── docs/                   ARCHITECTURE（架构）/ MODULE（模块接入）/ ONNX模型获取指南 / 技术分享-实现详解
 ```
-
-依赖方向严格单向：`UI → App → Detection/Cameras → Infrastructure/Configuration`。
 
 ## 快速开始
 
@@ -92,7 +128,7 @@ dotnet build YoloDetector.csproj -v q
 
 > **现场配置不会被构建覆盖**：以上运行配置只在输出目录缺失时随构建补齐（首次部署兜底），已存在则一律不动——重新编译/升级代码不会冲掉现场标定的 ROI、阈值与 IP；升级后若发现配置项缺失，删除输出目录里对应 json 再构建一次即可取回新版默认模板。
 
-常用调参（`Detection\yoloConfig.json`）：
+### 常用调参（yoloConfig.json）
 
 ```jsonc
 {
@@ -119,10 +155,11 @@ dotnet build YoloDetector.csproj -v q
 {
   "Enabled": true,                      // false=关闭(管道零开销，等同纯人员检测)
   "PoseModelPath": "Detection/model/yolo11n-pose.onnx",
+  "WristConfidenceThreshold": 0.25,     // 手腕关键点可信门槛，边缘/大占比人体场景敏感度开关
   "RoiX": 0.40, "RoiY": 0.25,           // ROI 左上角(归一化)
   "RoiW": 0.20, "RoiH": 0.35,           // ROI 宽高(归一化)
-  "MarginPx": 20,                       // 判定容差(像素)，贴边微调用
-  "HoldDurationMs": 400,                // 持续命中多久才算"正在触摸"：默认覆盖"拍一下"(150~400ms)；误报多调大、漏拍调小
+  "MarginPx": 40,                       // 判定容差(像素)，贴边微调用
+  "HoldDurationMs": 400,                // 持续命中多久才算"正在触摸"：覆盖"拍击"(150~400ms)；误报多调大(600~1000)、漏拍调小(250)
   "ReleaseGraceMs": 2000,               // 短暂丢失的宽限期
   "ProcessEveryNFrames": 1,             // CPU 慢可调 2~3(每N帧分析一次)
   "DrawOverlay": true,                  // 预览画面叠加 ROI/状态
@@ -171,7 +208,7 @@ python tools\download_pose_model.py --export
 | [docs/技术分享-人员检测与人手动作检测实现详解.md](docs/技术分享-人员检测与人手动作检测实现详解.md) | 面向小白的原理讲解：人员检测五步流水线、姿态关键点+接触状态机、两级叠加绘制、多线程/内存/性能工程细节、FAQ（技术分享会材料） |
 | [docs/MODULE.md](docs/MODULE.md) | 检测模块接入指南：最小示例、静电杆 ROI 拖拽标定傻瓜接入、接口扩展点、离线部署清单 |
 | [docs/ONNX模型获取指南.md](docs/ONNX模型获取指南.md) | 换模型时的下载与 pt→onnx 转换操作手册 |
-| [.opencode/skill/全量回归验证/](.opencode/skill/全量回归验证/SKILL.md) | 一键回归验证 skill：构建 + 121 个进程内回归用例 + GUI 冒烟（`Run-AllTests.ps1`），含模块↔用例对账表 |
+| [.opencode/skill/全量回归验证/](.opencode/skill/全量回归验证/SKILL.md) | 一键回归验证 skill：构建主项目 + 180 个进程内回归用例 + GUI 冒烟（`Run-AllTests.ps1`），含模块↔用例对账表 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本改动记录 |
 
 ## 已知限制

@@ -2,6 +2,21 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.9.3（2026-11-01）README 全面重构（文档迭代专项，零代码改动）
+
+### 改动范围
+
+只重写 `README.md`，代码零改动。按 readme skill 标准流程重新落稿：
+
+- **事实校准两处过期数字**：回归用例数 121 → **180**（全量回归 skill v2.9.2 已扩到 180，此前 README 未同步）；`esdConfig.json` 示例 `MarginPx` 20 → **40**（v2.9.1 现场调优后实际默认值）。
+- **头部标准化**：新增 shields.io 徽章五枚（.NET 4.7.2 / C# 7.3、OpenCvSharp 4.10、ONNX Runtime 1.20、回归用例 180、平台 x64，版本号全部核对 DLL FileVersion 与配置文件实测）；一句话定位前置，5 秒读懂"是什么"。
+- **新增 mermaid 架构图**：依赖单向分层（UI → App → Detection/Cameras → Infrastructure/Configuration）、Detection 类库边界，GitHub 原生渲染。
+- **运行效果截图改居中头部**（GitHub 外链真实截图保留）；正文结构与信源原文未作内容性修改。
+
+### 为什么这么改
+
+README 是对外门户，读者是第一次见到项目的人；过期数字（用例数、判定容差）会误导现场排查，缺徽章与架构图降低第一印象。全部数字取自信源文件抄取（CHANGELOG/skill SKILL.md/各 json 配置/DLL 版本元数据），零编造。卫生核验 check_readme.py（NG=0 WARN=0）与 img_inventory.py（OK）双 PASS。
+
 ## v2.9.2（2026-09-10）全面审查：稳定性修复 + 性能优化 + 测试补全（127→180 用例）
 
 ### 改动范围
