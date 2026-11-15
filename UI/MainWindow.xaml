@@ -106,7 +106,8 @@
                                 VerticalAlignment="Center">
                         <TextBlock Text="通道" Style="{StaticResource FieldLabelText}"
                                    VerticalAlignment="Center"/>
-                        <Border Height="34" CornerRadius="999"
+                        <!-- 胶囊圆角=高的一半(17)：写 999 会被 WPF 等比缩小成蛋形（CSS 999px 是逐角 clamp，WPF 不是） -->
+                        <Border Height="34" CornerRadius="17"
                                 Background="{DynamicResource InputBgBrush}"
                                 BorderBrush="{DynamicResource InputBorderBrush}"
                                 BorderThickness="1" Margin="8,0,0,0">
@@ -114,7 +115,7 @@
                                 <Button x:Name="btnChannelTopDown" Content="−" Width="30"
                                         Style="{StaticResource RoundIconButton}"
                                         Click="btnChannelDown_Click"/>
-                                <TextBlock x:Name="txtChannelTop" Text="0" MinWidth="30"
+                                <TextBlock x:Name="txtChannelTop" Text="0" MinWidth="34"
                                            TextAlignment="Center" VerticalAlignment="Center"
                                            FontSize="13" FontWeight="Bold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"/>
@@ -129,7 +130,7 @@
                     <Border x:Name="badgeStatus" Grid.Column="4"
                             Style="{StaticResource StatusBadge}" Margin="18,0,0,0"
                             VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Ellipse x:Name="badgeDot" Width="7" Height="7"
                                      Fill="{DynamicResource DangerBrush}">
                                 <Ellipse.Triggers>
@@ -225,7 +226,8 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="通道" Style="{StaticResource FieldLabelText}"
                                            VerticalAlignment="Center"/>
-                                <Border Grid.Column="1" Height="34" CornerRadius="999"
+                                <!-- 胶囊圆角=高的一半(17)：写 999 会被 WPF 等比缩小成蛋形（CSS 999px 是逐角 clamp，WPF 不是） -->
+                                <Border Grid.Column="1" Height="34" CornerRadius="17"
                                         Background="{DynamicResource InputBgBrush}"
                                         BorderBrush="{DynamicResource InputBorderBrush}"
                                         BorderThickness="1">
@@ -233,7 +235,7 @@
                                         <Button x:Name="btnChannelDown" Content="−" Width="30"
                                                 Style="{StaticResource RoundIconButton}"
                                                 Click="btnChannelDown_Click"/>
-                                        <TextBlock x:Name="txtChannel" Text="0" MinWidth="30"
+                                        <TextBlock x:Name="txtChannel" Text="0" MinWidth="34"
                                                    TextAlignment="Center" VerticalAlignment="Center"
                                                    FontSize="13" FontWeight="Bold"
                                                    Foreground="{DynamicResource TextPrimaryBrush}"/>

@@ -2,6 +2,23 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.10.1（2026-11-15）修复顶栏/左栏胶囊控件呈蛋形的问题（v2.10 目检反馈）
+
+### 改动范围
+
+- **症状**：顶栏通道 stepper、"未连接"状态徽标、左栏通道 stepper 三处胶囊呈**椭圆蛋形**（整条边都弯），与设计稿的正胶囊（两端半圆端帽 + 上下直边）不符——用户截图红框指出。
+- **根因**：WPF `Border.CornerRadius` 写 `999` 时的行为与 CSS 不同——CSS 的 `border-radius:999px` 会被浏览器**逐角独立 clamp**（宽>高时退化为高一半，仍是正胶囊）；WPF 则把过大的圆角**按比例整体缩小**（宽 94 × 高 34 的元素圆角被压成远小于 17 的值且四角联动），结果整条边都参与弯曲，呈蛋形。
+- **修复**（形状铁律：**圆角 = 高度的一半**）：
+  - `MainWindow.xaml` 两处 stepper 容器 `CornerRadius="999"` → `"17"`（Height=34）；
+  - `GalaxyTheme.xaml` `StatusBadge` 改固定 `Height=27` + `CornerRadius=13.5` + `Padding=13,0`（对齐 CSS .m-badge 的 12px 字号 + 5px 上下内边距 + 1px 边框）；
+  - `GalaxyTheme.xaml` 新增 `RoundIconTemplate`（圆角 17）替换 `RoundIconButton` 原用的 `GlassButtonTemplate`（固定圆角 10）——30×30 主题切换按钮被 clamp 到 15 = 正圆（CSS .m-theme 的 `border-radius:50%`），30×34 的 −/+ 按钮 hover 背景贴合胶囊端帽弧线。
+  - 顺带对齐 CSS 规格：`.num` 的 `min-width` 30 → 34。
+- **验证**：深浅双模式截图目检三处胶囊均呈正胶囊；`Run-AllTests` 全绿（构建 + 181 用例 + GUI 冒烟退出码 0）。
+
+### 为什么这么改
+
+v2.10 交付后用户对照设计稿发现胶囊控件形状不对。CSS→XAML 翻译时把 CSS 的 `border-radius:999px` 惯性直译成了 WPF 的 `CornerRadius="999"`，但两者的 clamp 语义不同（CSS 逐角独立、WPF 整体等比），坑已沉淀进 AGENTS.md「WPF 玻璃拟态界面约定」。
+
 ## v2.10（2026-11-15）界面层 WinForms → WPF 整体替换（玻璃拟态 Glass Aurora 主题）
 
 ### 改动范围

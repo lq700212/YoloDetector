@@ -59,6 +59,32 @@
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
+    <!-- 圆形/胶囊小按钮模板：圆角 17 的由来——WPF 的 CornerRadius 超过元素短边一半时
+         会被"等比整体缩小"（宽>高的元素整条边都弯掉、呈现蛋形），而 CSS 的
+         border-radius:999px 是逐角独立 clamp（两端半圆端帽 + 上下直边 = 正胶囊）。
+         因此这里写死 17：30x30 按钮被 clamp 到 15 = 正圆（CSS .m-theme 的 50%），
+         30x34 stepper 按钮被 clamp 到 15 ≈ 胶囊端帽弧线（CSS .m-stepper button）。
+         改 stepper 高度时此值须同步 >= 新高度的一半。 -->
+    <ControlTemplate x:Key="RoundIconTemplate" TargetType="Button">
+        <Border x:Name="bd"
+                CornerRadius="17"
+                Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}"
+                SnapsToDevicePixels="True">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Margin="{TemplateBinding Padding}"/>
+        </Border>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="bd" Property="Opacity" Value="0.75"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="bd" Property="Opacity" Value="0.45"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
     <!-- 主按钮（连接相机等关键操作）：CSS .m-btn.primary -->
     <Style x:Key="PrimaryButton" TargetType="Button">
         <Setter Property="Background" Value="{DynamicResource PrimaryBrush}"/>
@@ -164,14 +190,16 @@
         <Setter Property="Template" Value="{StaticResource GlassButtonTemplate}"/>
     </Style>
 
-    <!-- 圆形小按钮（通道 stepper 的 −/+ 与右上角主题切换）：CSS .m-stepper button / .m-theme -->
+    <!-- 圆形小按钮（通道 stepper 的 −/+ 与右上角主题切换）：CSS .m-stepper button / .m-theme
+         模板必须用 RoundIconTemplate（圆角 17 自动 clamp 成正圆/胶囊端帽），
+         不能用 GlassButtonTemplate 的固定圆角 10——方形 hover 背景会顶出胶囊弧线 -->
     <Style x:Key="RoundIconButton" TargetType="Button">
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource TextSubBrush}"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="FontSize" Value="14"/>
-        <Setter Property="Template" Value="{StaticResource GlassButtonTemplate}"/>
+        <Setter Property="Template" Value="{StaticResource RoundIconTemplate}"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}"/>
@@ -304,13 +332,16 @@
 
     <!-- ============ 状态徽标 ============ -->
 
-    <!-- 连接状态徽标容器（CSS .m-badge：胶囊 + 发光点；发光点动画在布局层 Ellipse 上） -->
+    <!-- 连接状态徽标容器（CSS .m-badge：胶囊 + 发光点；发光点动画在布局层 Ellipse 上）
+         胶囊形状必须"固定高 + 圆角=高的一半"：CornerRadius 写 999 会被 WPF 等比缩小成蛋形
+         （CSS 是逐角 clamp 成正胶囊，WPF 不是）。27 = CSS 12px 文字 + 5px 上下内边距 + 2px 边框 -->
     <Style x:Key="StatusBadge" TargetType="Border">
         <Setter Property="Background" Value="{DynamicResource BadgeOkBgBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BadgeOkBorderBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="CornerRadius" Value="999"/>
-        <Setter Property="Padding" Value="13,5"/>
+        <Setter Property="Height" Value="27"/>
+        <Setter Property="CornerRadius" Value="13.5"/>
+        <Setter Property="Padding" Value="13,0"/>
     </Style>
 
     <!-- ============ 全局滚动条（日志/设备状态共用，隐式样式） ============ -->

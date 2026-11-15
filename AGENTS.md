@@ -84,6 +84,7 @@ YoloDetector/
   - **视频区元素恒定深色**：`Video*` 系画刷两套调色板值相同——视频画面永远压深色内容，浮层/角标不随主题翻转（否则浅色主题下深色画面上的按钮文字会看不清）；
   - **WPF 无 `TextBox.Lines`**：日志 500 行裁剪自行计数行数（`MainWindow._logLineCount`），并在用户上翻时不强拉回底部；
   - **XAML 注释禁 `--`**：XML 注释里写 `<!-- ---------- xxx ---------- -->` 装饰线会 MC3000 编译失败，用 `====` 代替；
+  - **胶囊形状铁律：CornerRadius = 高度的一半，禁止写 999**（v2.10.1 实测踩坑）：CSS 的 `border-radius:999px` 浏览器会**逐角独立 clamp**（宽>高时退化为正胶囊：两端半圆端帽+直边），WPF 的 `Border.CornerRadius` 过大时却**按比例整体缩小**（宽 94×高 34 的元素四角联动压缩），整条边都弯掉呈**蛋形**。正确写法：固定 Height（如 34）+ CornerRadius=Height/2（17）；高度随内容变的（如状态徽标）必须固定 Height 再取一半。−/+ 圆形小按钮模板 `RoundIconTemplate` 同理（圆角 17 在 30×30 上 clamp 成正圆、30×34 上贴合胶囊端帽）；
   - 界面视觉验证套路：`desktop_launch` 启动 bin 下 exe → `desktop_screenshot`(window_id) 截图 → read 工具目检；**与 `design/风格提案.html` 设计稿逐项并排对比**（用户要求一比一还原，改布局/配色后必须两边截图对照）。
 
 ## 并发与资源管理红线（本项目核心特色，均为实测踩坑沉淀）
