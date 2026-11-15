@@ -2,6 +2,30 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.10（2026-11-15）界面层 WinForms → WPF 整体替换（玻璃拟态 Glass Aurora 主题）
+
+### 改动范围
+
+**UI 框架级替换**（功能级行为不变：所有交互语义照搬 WinForms 版 MainForm，检测链路/配置/相机零改动）：
+
+- **技术栈切换**：`YoloDetector.csproj` `UseWindowsForms=true` → `UseWPF=true`；移除 SunnyUI/SunnyUI.Common 引用与 `Program.cs`（入口换 `UI/App.xaml` + `App.xaml.cs` OnStartup）；删除 `UI/MainForm.cs`、`UI/MainForm.Layout.cs`、`UI/RoiSelectionPictureBox.cs`（git 历史留底）。
+- **玻璃拟态主题（翻译自 `design/风格提案.html` 方案三）**：`UI/Themes/Palette.Dark.xaml` + `Palette.Light.xaml`（同名画刷 key 深浅两套）+ `GalaxyTheme.xaml`（GlassCard/按钮四态/GlassInput 含水印/LogBox/视频浮层/全局窄滚动条等样式）；界面右上角 ◐ 运行时切换主题（`MergedDictionaries` 原位替换 `Palette.*`，样式文件零改动）。视频区元素恒定深色不随主题翻转（画面永远压深色内容）。
+- **主窗口** `UI/MainWindow.xaml(.cs)`：顶栏（logo/IP/流地址 flex/通道 stepper/状态徽标/主题切换）+ 左栏三卡（相机：连接+预览2×2；通道与标定：stepper+标定+门基准；设备状态）+ 右侧视频卡与日志卡；功能行为逐项对照旧 MainForm 移植（IP 校验、三态按钮、状态轮询 DispatcherTimer、ROI 标定热更新+落盘、500 行日志裁剪+底部跟随滚动）；`SafeBeginInvoke` → `SafeDispatcherInvoke`（Dispatcher 关停检查 + 异常兜底，调度失败就地释放随行 SKBitmap）。
+- **预览显示边界换轨**：`VideoDetectionController.previewSink` 签名 `Action<Drawing.Bitmap>` → `Action<SkiaSharp.SKBitmap>`（App 层彻底去 WinForms 专属类型）；新增 `App/SkBitmapWpfExtensions.cs`（SKBitmap Bgra8888 → WriteableBitmap Bgra32 整块 WritePixels，复用单实例逐帧零 LOH 分配）；删除 `App/SkBitmapExtensions.cs`（替换后无调用点，防线测试平移至 WPF 版）。
+- **ROI 框选 WPF 薄壳** `UI/RoiSelectionImage.cs`：纯逻辑复用类库 `RoiSelectionState`/`ZoomMapping` 零改动；WPF 差异点（显式 CaptureMouse、HitTestCore 使空源可命中、InvalidateVisual）全部注释说明，换算行为与 WinForms 版零差异。
+- **回归测试体系平移**：`SkBitmapExtensionTests`（4 用例）→ `SkBitmapWpfTests`（5 用例：像素无损/尺寸不匹配拒绝/格式拒绝/null 契约/Mat 全链一致）；`UiSmokeTests` 重写为 WPF 版（STA + Dispatcher.PushFrame 推进 + 进程内构造 Application 并合并主程序集主题字典——**pack URI 必须用 `YoloDetector;component` 组件形式**）；harness csproj 的 WinForms/SunnyUI/System.Drawing 引用 → PresentationFramework 等 WPF 四件套；删除已与代码脱节的 `Invoke-RoiDragVisualCheck.ps1`。**用例总数 180 → 181，Run-AllTests 全绿 + GUI 冒烟通过**。
+- **文档**：README 技术栈/架构图/项目结构/使用步骤/截图（docs/images/ 新增深浅两版实拍）全面同步；本文件新增本节；AGENTS.md 技术栈与界面约定同步改写。
+
+### 为什么这么改
+
+用户要求把 Demo 的 WinForms 界面替换为 WPF，风格基于 galaxy（Uiverse.io 组件库）玻璃拟态方案（HTML 设计稿经浏览器选款确认，深浅双模式都要）。Detection 检测类库在此前已验证完全独立（零宿主引用、可独立编译），本次替换只动 UI 壳与 App 层显示边界，验证了"类库可整体迁移"架构的实际收益：检测域、相机域、配置层零改动完成 UI 框架更替。
+
+### 实测踩坑沉淀（已写入 AGENTS.md）
+
+1. **net472 相对 pack URI 启动即崩**：`ResourceDictionary Source="UI/Themes/X.xaml"` 相对形式在 net472 运行时按 file:// 解析 → `IOException` + `XamlParseException`（0xE0434352 启动即退）。必须用显式 `pack://application:,,,/YoloDetector;component/...` 绝对 URI。
+2. **组件形式 pack URI 是 harness 兼容的关键**：不带程序集名的 pack 形式解析到入口程序集——回归 harness（入口 Tests.exe）进程内加载主窗口时找不到资源，必须用 `;component` 指向 YoloDetector 程序集。
+3. **WPF 无 `TextBox.Lines`**：500 行日志裁剪需自行计数行数；WPF 位图（WriteableBitmap）无 Dispose 语义，所有权从"换图 Dispose 旧图"变为"复用单实例 + 断引用交给 GC"。
+
 ## v2.9.3（2026-11-01）README 全面重构（文档迭代专项，零代码改动）
 
 ### 改动范围

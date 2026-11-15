@@ -5,23 +5,22 @@
 
 ## 项目角色
 
-你是本项目（Windows 窗体 C#/.NET Framework 应用）的**资深维护工程师**，负责按用户需求改代码、修 bug、沉淀约定。改动必须**可编译、可运行、风格统一**，并在关键改动后更新 `CHANGELOG.md`。
+你是本项目（WPF 桌面应用，C#/.NET Framework 4.7.2）的**资深维护工程师**，负责按用户需求改代码、修 bug、沉淀约定。改动必须**可编译、可运行、风格统一**，并在关键改动后更新 `CHANGELOG.md`。
 
 本项目功能：通过 RTSP 流接入网络摄像头，使用 YOLO（ONNX Runtime）对视频帧做**实时人员检测**，检测结果叠加绘制后显示到预览窗口。在此基础上支持**静电杆触摸检测**（YOLO-pose 人体关键点 + 静电杆 ROI 区域规则，工厂防静电场景）。
 
 ## 技术栈
 
-- **.NET Framework 4.7.2** WinForms（非 .NET Core/.NET 5+，勿引入其运行时 API）
+- **.NET Framework 4.7.2** WPF（`UseWPF=true`，v2.10 起界面层为 WPF 玻璃拟态主题；非 .NET Core/.NET 5+，勿引入其运行时 API；**禁止再引入 WinForms/System.Drawing**——v2.10 已整体移除）
 - **C# 语言版本固定为 7.3**（`YoloDetector.csproj` 中 `<LangVersion>7.3</LangVersion>`）——**禁止使用 C# 8+ 语法**（无 `using var`、无 switch 表达式、无可空引用类型注解、无 `^`/`..` 索引切片、无默认接口方法）
 - **平台目标 x64**（OpenCV / ONNX Runtime 的 native DLL 为 64 位，勿改成 AnyCPU/x86）
 - SDK 风格 csproj：`.cs` 自动包含，新增源码文件无需登记；配置/模型的复制规则（`Content Include`）集中在 csproj 内维护；**例外**：`Detection\` 目录源码由独立类库 `Detection\YoloDetector.Detection.csproj` 编译（主 csproj 已 `Compile Remove`），在 Detection/ 下新增 .cs 自动进类库，放其他目录进主程序
-- **检测类库多目标与离线依赖**：`TargetFrameworks=net472;netstandard2.0`，两目标能力完全一致（无条件编译差异）——位图后端统一 SkiaSharp（SKBitmap，Bgra8888 与 OpenCV BGRA 布局对齐，SIMD CvtColor + Buffer.MemoryCopy 整块拷贝，1080P 约 5ms）；**禁止引入 System.Drawing 到类库**（Windows 专属，破坏跨平台；宿主显示层在 App/SkBitmapExtensions.cs 做一次 SKBitmap→Drawing.Bitmap 边界转换）；托管依赖与 native 运行库均已 vendor 入 git（`Detection\libs\` + `Detection\libs\native\`，Windows 与 Linux 双平台共约 201MB，最大单文件 libOpenCvSharpExtern.so 72MB < GitHub 100MB 限制），**克隆即完整、编译运行全离线、双平台开箱可用**；`tools\collect-native.ps1` 仅在更换 OpenCvSharp/OnnxRuntime/SkiaSharp 依赖版本后重新收集时使用；ps1 脚本含中文必须存为 **UTF-8 带 BOM**（PowerShell 5.1 无 BOM 按 ANSI 解析会炸）
+- **检测类库多目标与离线依赖**：`TargetFrameworks=net472;netstandard2.0`，两目标能力完全一致（无条件编译差异）——位图后端统一 SkiaSharp（SKBitmap，Bgra8888 与 OpenCV BGRA 布局对齐，SIMD CvtColor + Buffer.MemoryCopy 整块拷贝，1080P 约 5ms）；**禁止引入 System.Drawing 到类库**（Windows 专属，破坏跨平台；宿主显示层在 App/SkBitmapWpfExtensions.cs 做一次 SKBitmap→WPF WriteableBitmap 边界转换）；托管依赖与 native 运行库均已 vendor 入 git（`Detection\libs\` + `Detection\libs\native\`，Windows 与 Linux 双平台共约 201MB，最大单文件 libOpenCvSharpExtern.so 72MB < GitHub 100MB 限制），**克隆即完整、编译运行全离线、双平台开箱可用**；`tools\collect-native.ps1` 仅在更换 OpenCvSharp/OnnxRuntime/SkiaSharp 依赖版本后重新收集时使用；ps1 脚本含中文必须存为 **UTF-8 带 BOM**（PowerShell 5.1 无 BOM 按 ANSI 解析会炸）
 - 关键库（托管 DLL 已 vendor 到 `Detection\libs\`，离线编译）：
   - OpenCvSharp 4.10（RTSP 视频捕获、Mat 图像处理、绘制）
   - Microsoft.ML.OnnxRuntime 1.20（YOLO 推理）
-  - SunnyUI 3.9.8（界面控件库，小清新风格；DLL 已 vendor 到 `Detection\libs\`，零 NuGet）
-
   - Newtonsoft.Json 13.0.3（配置序列化；DLL 已 vendor 到 `Detection\libs\`，零 NuGet）
+  - 界面层零第三方 UI 库：原生 WPF + 自定义玻璃拟态主题（`UI/Themes/`，深浅双模式；v2.10 起 SunnyUI 已随 WinForms 移除）
 
 - **主项目也零 NuGet**：v2.6 起 csproj 无任何 PackageReference，全部依赖走 `Reference + HintPath` 指向 `Detection\libs\`——新机器克隆即编译，禁止再引入 PackageReference（新依赖一律复制 DLL 进 libs 并写明目标框架来源）
   - System.Net.Http（流地址测试）
@@ -32,9 +31,8 @@
 
 ```
 YoloDetector/
-├── Program.cs              入口
-├── UI/                     视图层：MainForm.cs(纯交互) + MainForm.Layout.cs(布局)
-├── App/                    编排层：VideoDetectionController(帧流转/生命周期)、CameraController(连接/轮询)
+├── UI/                     视图层（WPF）：App.xaml(入口) + MainWindow.xaml(.cs) + Themes/(玻璃拟态主题) + RoiSelectionImage.cs(ROI框选)
+├── App/                    编排层：VideoDetectionController(帧流转/生命周期)、CameraController(连接/轮询)、SkBitmapWpfExtensions(显示边界)
 ├── Detection/              检测域【独立类库 YoloDetector.Detection.dll，命名空间 YoloDetection】：接口/检测器/管道/帧源/可视化器/后处理器/日志门面
 ├── Cameras/                相机抽象：ICameraApi + 品牌实现 + CameraApiFactory + DeviceStatus
 ├── Configuration/          配置：AppConfig 加载器 + CameraConfig/YoloConfig 模型
@@ -66,27 +64,27 @@ YoloDetector/
 ## 代码约定
 
 - **新功能动手前先自问"能不能进 Detection 类库"（用户强制约定，每次必须执行，不等提醒）**：
-  判断标准——这段逻辑脱离宿主后是否仍成立（不依赖 WinForms 控件 / System.Drawing / AppConfig / 相机品牌 / UI 线程）？
+  判断标准——这段逻辑脱离宿主后是否仍成立（不依赖 WPF 控件 / Dispatcher / AppConfig / 相机品牌 / UI 线程）？
   - **能 → 必须优先封装进 Detection 类库**（纯逻辑、可单测、随库迁移），宿主只留薄壳接线
-    （范例：`RoiSelectionState`/`ZoomMapping` 在类库，`RoiSelectionPictureBox` 只是 WinForms 薄壳）；
+    （范例：`RoiSelectionState`/`ZoomMapping` 在类库，`RoiSelectionImage` 只是 WPF 薄壳）；
   - 部分能 → 拆分：纯逻辑进类库，平台相关壳留宿主（单文件可复制）；
   - 自检问题：**把 `Detection\` 目录复制到新项目后，这个功能是否零重做即可用？** 答案为否就重新分层；
   - 类库侧禁用 UI 框架类型（用 float 参数/类库自有结构如 `EsdRoiRect` 代替 Point/Rectangle）。
 - 类、方法、属性用 PascalCase；私有字段用 `_camelCase`；接口前缀 `I`；**文件名与公共类名保持一致**（如 `AngehuaCameraApiClient.cs` ↔ `class AngehuaCameraApiClient`）。
-- 控件命名沿用 Designer 匈牙利前缀：`lbl` / `txt` / `btn` / `pBox_` / `num` 等（跟随 `UI/MainForm.Layout.cs` 既有风格）。
-- **窗体布局代码统一放 partial 文件**（`MainForm.Layout.cs`），主文件只放业务逻辑；新增窗体遵循同样拆分。
+- 控件命名沿用匈牙利前缀：`lbl` / `txt` / `btn` / `badge` / `num` 等（跟随 `UI/MainWindow.xaml` 既有风格）；XAML 控件必须保留 `x:Name`（可访问性树/自动化测试靠 AutomationId 定位）。
+- **界面布局放 XAML**（`UI/MainWindow.xaml`），业务逻辑放 code-behind（`MainWindow.xaml.cs`）；新增窗口遵循同样拆分；主题/样式一律进 `UI/Themes/`，禁止在窗口内写死颜色。
 - **界面类头注释鼓励画 ASCII 布局图**（`┌─┐│└┘` 标注控件名与交互点），AI 无法看图，改界面全靠这段文本图。
 - 死代码即删：无引用的类型/方法/配置项/NuGet 包直接清理，不做"以后可能用到"的保留（真要用时再加回来成本很低）。
 - 新增第三方包前先确认是否已有同功能依赖；移除包时同步清理 bin 下的残留产物（重新构建即可验证）。
-- **async/await 约定**：`async void` 仅用于 WinForms 事件处理器，且内部立即转调 `async Task` 方法并整体 try/catch 兜底（参照 `UI/MainForm.cs` 各 `btn*_Click`）；类库层（App/Detection/Cameras）await 一律加 `ConfigureAwait(false)`，UI 层不加（需回到 UI 上下文更新控件）。
-- **System.Drawing 与 OpenCvSharp 同文件时的类型歧义**：`Point`/`Size`/`Color` 等两库都有定义，必须全限定写法（如 `OpenCvSharp.Point`、`OpenCvSharp.Rect`），否则报 CS0104 二义性编译错误。
-- **SunnyUI 3.9.8 API 踩坑（改界面前必读）**：
-  - `UILogView` 已被移除——日志区用原生 `TextBox`，行数裁剪在 `MainForm.AppendLogToPanel`（500 行上限，保留滚动位置）；
-  - `UIButton` 悬停/按压色属性名是 `FillHoverColor`/`FillPressColor`（**不是** `HoverColor`/`PressColor`），边框对应 `RectHoverColor`/`RectPressColor`；
-  - `UIPanel.RectSize` 是静态成员不可实例赋值，圆角/描边只用 `Radius`/`RectColor`；
-  - `UIIntegerUpDown` 的 `Maximum`/`Minimum` 是 **Double**、`Value` 是 **Int32**（与原生 NumericUpDown 的 decimal 不同）；
-  - **同一行"标签+输入框"必须垂直中心对齐**：9.5F 微软雅黑标签渲染高约 18px，`label.y = 控件y + (控件高−18)/2`，改布局后用截图 harness 目检；
-  - 界面视觉验证套路：PowerShell `-STA` 加载 bin 下的 DLL/exe → `new MainForm()` → Show → `CopyFromScreen` 存 PNG → read 工具目检（脚本在本次会话已验证可行）。
+- **async/await 约定**：`async void` 仅用于 WPF 事件处理器，且内部立即转调 `async Task` 方法并整体 try/catch 兜底（参照 `UI/MainWindow.xaml.cs` 的 `btnConnect_Click`）；类库层（App/Detection/Cameras）await 一律加 `ConfigureAwait(false)`，UI 层不加（需回到 UI 上下文更新控件）。
+- **WPF 玻璃拟态界面约定（改界面前必读，v2.10 沉淀）**：
+  - **主题画刷必须 DynamicResource**：`UI/Themes/Palette.Dark|Light.xaml` 深浅两套同名 key，样式（`GalaxyTheme.xaml`）里用 `{DynamicResource XxxBrush}` 引用——StaticResource 会在加载时固化，主题切换不刷新；运行时切换 = 原位替换 `MergedDictionaries` 里的 `Palette.*` 字典（见 `MainWindow.ApplyTheme`），样式文件零改动；
+  - **pack URI 必须用 `pack://application:,,,/YoloDetector;component/...` 组件形式（实测启动即崩的坑）**：相对形式（`UI/Themes/X.xaml`）在 net472 运行时被按 file:// 解析 → IOException → XamlParseException（0xE0434352 启动即退）；不带程序集名的 pack 形式只解析**入口程序集**——回归 harness（入口 Tests.exe）进程内加载主窗口时找不到资源，`;component` 指向 YoloDetector 程序集两种场景都对；
+  - **WPF 位图无 Dispose 语义**：预览显示用复用的单个 `WriteableBitmap`（分辨率不变跨帧 `WritePixels` 原地更新，零 LOH 分配）；SKBitmap 帧所有权仍归 UI，`TryWriteTo` 后立即 Dispose；分辨率变化（含首帧）用 `CreateMatchingWriteableBitmap` 重建；
+  - **视频区元素恒定深色**：`Video*` 系画刷两套调色板值相同——视频画面永远压深色内容，浮层/角标不随主题翻转（否则浅色主题下深色画面上的按钮文字会看不清）；
+  - **WPF 无 `TextBox.Lines`**：日志 500 行裁剪自行计数行数（`MainWindow._logLineCount`），并在用户上翻时不强拉回底部；
+  - **XAML 注释禁 `--`**：XML 注释里写 `<!-- ---------- xxx ---------- -->` 装饰线会 MC3000 编译失败，用 `====` 代替；
+  - 界面视觉验证套路：`desktop_launch` 启动 bin 下 exe → `desktop_screenshot`(window_id) 截图 → read 工具目检；**与 `design/风格提案.html` 设计稿逐项并排对比**（用户要求一比一还原，改布局/配色后必须两边截图对照）。
 
 ## 并发与资源管理红线（本项目核心特色，均为实测踩坑沉淀）
 
@@ -94,13 +92,13 @@ YoloDetector/
 
 1. **帧所有权契约**：
    - `IFrameSource.FrameReady` 与 `IDetectionPipeline.FrameProcessed` 事件传出的 **Mat 归订阅者所有，用完必须 Dispose**；
-   - `VideoDetectionController` 是全链路 Mat 所有权的管理者（每一步 try/finally 终结所有权），**UI 层只接触 Bitmap 和结果快照**，新增功能不得破坏这一边界；
-   - UI 显示用的 Bitmap 归 PictureBox 所有，替换 `Image` 时先 Dispose 旧图。
+   - `VideoDetectionController` 是全链路 Mat 所有权的管理者（每一步 try/finally 终结所有权），**UI 层只接触 SKBitmap/WriteableBitmap 和结果快照**，新增功能不得破坏这一边界；
+   - previewSink 移交的 SKBitmap 归 UI 所有：UI 线程 `TryWriteTo` 写入显示位图后立即 Dispose，调度失败就地 Dispose；显示位图用复用的单个 `WriteableBitmap`（WPF 位图无 Dispose 语义，分辨率变化才重建，旧实例断引用交给 GC）。
 2. **事件传出的一律是不可变快照**（列表副本），禁止把内部集合引用泄漏给订阅者。（踩坑实例：v2.0 自测曾发现 `_lastDetections` 与事件参数共享同一 List 实例，外部修改事件参数直接污染内部状态——发布时必须 `new List<T>(snapshot)` 再传出）
 3. **线程停止协议**：后台循环停止一律走"volatile/锁内置位标志 → Monitor.PulseAll → 有界 Join"。**优先用 Monitor.Wait/Pulse 传递信号而不是 AutoResetEvent/SemaphoreSlim**——WaitHandle 一旦在线程仍存活时 Dispose 就会产生 ObjectDisposedException 竞态（旧版实际崩溃过）。Join 超时的正确做法是放弃等待让线程自行退出，**绝不在后台线程可能仍在使用时销毁其依赖的资源**。
 4. **后台线程异常绝不逃逸**：工作线程循环体整体 try/catch 兜底，记录日志继续跑；catch 里不得假设共享状态未被破坏。
 5. **跨线程状态**：停止标志必须 volatile 或置于锁内；单写者计数字段可不加锁但要注释说明。
-6. **UI 调度防护**：后台回调更新 UI 必须经 `SafeBeginInvoke`（句柄检查 + ObjectDisposedException/InvalidOperationException 兜底），调度失败就地释放随行资源（如 Bitmap）。窗体关闭顺序必须是：先停定时器 → 再停控制器（内部有界等待线程退出）→ 最后才允许控件析构。
+6. **UI 调度防护**：后台回调更新 UI 必须经 `SafeDispatcherInvoke`（Dispatcher 关停检查 + TaskCanceledException/InvalidOperationException 兜底，对应 WinForms 时代 `SafeBeginInvoke` 的 WPF 对应物），调度失败就地释放随行资源（如 SKBitmap 帧）。窗口关闭顺序必须是：先停定时器 → 再停控制器（内部有界等待线程退出）→ 最后才允许控件析构（`MainWindow.Window_Closed` 五步顺序，`App.OnExit` 幂等兜底 `Logger.Close`）。
 7. **Mat/Bitmap 释放纪律**：临时 Mat 用 using 或 finally；`ConvertToBgr` 这类"可能返回原对象"的方法，释放前必须 `ReferenceEquals` 判重；新增图像处理代码时逐帧问一遍"这帧谁负责释放"。
 8. **防积压**：视频管线用单槽位缓冲（新帧覆盖旧帧），不要用无限队列；网络请求轮询必须有防重入保护（参照 `CameraController.TryGetStatusAsync` 的 Interlocked 模式）。
 9. **事件订阅/退订必须成对**：长生命周期对象订阅短生命周期对象的事件会阻止 GC 回收（内存泄漏）。本项目做法是控制器统一接线/拆线（`VideoDetectionController.Start/Stop` 内 `+=`/`-=` 成对出现），不要散落在窗体各处。
@@ -109,7 +107,7 @@ YoloDetector/
 
 ## 性能约定（实测数据沉淀）
 
-- **Mat ↔ SKBitmap 互转只用 `MatExtensions.MatToSKBitmap/SKBitmapToMat`**（Bgra8888 与 OpenCV BGRA 布局对齐：SIMD CvtColor 补 alpha + `Buffer.MemoryCopy` 整块拷贝，1080P 约 5ms；往返像素差=0）；**禁止 JPEG 编解码中转**（10~30ms 且画质损失）、禁止逐像素 `Mat.Get<Vec3b>`（百万次 P/Invoke，30~80ms）。WinForms 显示链路在宿主边界经 `App/SkBitmapExtensions.ToDrawingBitmap()` 转 System.Drawing.Bitmap（约 0.5ms）。
+- **Mat ↔ SKBitmap 互转只用 `MatExtensions.MatToSKBitmap/SKBitmapToMat`**（Bgra8888 与 OpenCV BGRA 布局对齐：SIMD CvtColor 补 alpha + `Buffer.MemoryCopy` 整块拷贝，1080P 约 5ms；往返像素差=0）；**禁止 JPEG 编解码中转**（10~30ms 且画质损失）、禁止逐像素 `Mat.Get<Vec3b>`（百万次 P/Invoke，30~80ms）。WPF 显示链路在宿主边界经 `App/SkBitmapWpfExtensions.TryWriteTo` 整块写入复用的 `WriteableBitmap`（Bgra8888→Bgra32 直接对齐，1080P 约 2~3ms，逐帧零位图对象分配；**禁止** Drawing.Bitmap 中转、禁止每帧 new BitmapSource、禁止 GDI HBitmap interop）。
 - 张量预处理用 Marshal.Copy 整块拷贝像素 + 单层循环填 CHW，勿回退到逐像素访问。
 - 逐帧路径零大对象分配（v2.9.2）：预处理 byte[]/float[]、输出展平缓冲一律实例复用（85KB 以上进 LOH，LOH 只在 Gen2 回收时整理，逐帧分配等于慢性卡顿）；`SKTypeface.FromFamilyName` 这类查找型资源静态缓存（SKPaint 非线程安全仍按次创建）；日志字符串先判开关再插值。
 - 日志分级开关集中在 `LogManager`：YOLO 详细日志/每帧结果日志默认关闭（每帧刷日志会导致卡顿），调试完记得关回去。
@@ -119,11 +117,12 @@ YoloDetector/
 
 | 文件 | 作用 |
 | --- | --- |
-| `UI/MainForm.cs` | 主窗体（纯视图层）：按钮事件转发、日志面板、SafeBeginInvoke 调度、FormClosing 清理顺序、静电杆 ROI 拖拽标定接线（仅订阅 RoiSelected 事件） |
-| `UI/MainForm.Layout.cs` | 主窗体布局（InitializeComponent + 控件字段声明） |
-| `UI/RoiSelectionPictureBox.cs` | 自带拖拽框选标定的预览控件（WinForms 薄壳：鼠标接线/虚线框/坐标换算全内置，接入方订阅 RoiSelected 即用；纯逻辑在类库） |
+| `UI/App.xaml(.cs)` | WPF 应用入口：OnStartup 建主窗口、App 级合并主题字典（pack URI 组件形式）、OnExit 幂等兜底 Logger.Close |
+| `UI/MainWindow.xaml(.cs)` | 主窗口（纯视图层）：玻璃拟态布局（ASCII 图在文件头）、按钮事件、日志面板、SafeDispatcherInvoke 调度、Closed 清理五步、主题切换、静电杆 ROI 标定接线（仅订阅 RoiSelected 事件） |
+| `UI/Themes/` | 玻璃拟态主题：Palette.Dark/Light（深浅两套画刷，同名 key）+ GalaxyTheme（控件样式；引用画刷必须 DynamicResource） |
+| `UI/RoiSelectionImage.cs` | 自带拖拽框选标定的预览控件（WPF 薄壳：鼠标接线/虚线框/CaptureMouse/HitTestCore 全内置，接入方订阅 RoiSelected 即用；纯逻辑在类库） |
 | `App/VideoDetectionController.cs` | 检测链路编排：帧源→管道→可视化生命周期、Mat 所有权终结点、模型复用 |
-| `App/SkBitmapExtensions.cs` | SKBitmap→Drawing.Bitmap 宿主边界转换（Windows 显示专用，约 0.5ms） |
+| `App/SkBitmapWpfExtensions.cs` | SKBitmap→WriteableBitmap 宿主边界转换（WPF 显示专用，整块 WritePixels 约 2~3ms，复用单实例逐帧零分配） |
 | `App/CameraController.cs` | 相机连接状态机、防重入状态轮询、拉/推流操作 |
 | `Detection/YoloDetectionService.cs` | 检测管道（Monitor 生产者-消费者、单槽位缓冲、快照事件、有界停止） |
 | `Detection/RtspFrameCapturer.cs` | RTSP 帧捕获（线程私有 VideoCapture、断流两层自愈：连续失败重连+心跳看门狗强杀重建、失败路径零泄漏） |
@@ -169,10 +168,10 @@ else { $proc.CloseMainWindow() | Out-Null; if ($proc.WaitForExit(8000)) { "PASS:
 ```
 
 - 成功标准：输出 `bin\Debug\net472\YoloDetector.exe`，退出码 0；日志文件出现配对的"程序启动/程序退出"标记。
-- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：180 用例 harness 覆盖配置含EsdConfig与ROI标定写回/Mat互转/宿主位图转换/后处理/可视化器/真实模型推理与过滤NMS双布局解析/姿态检测器/静电接触状态机与叠加渲染/门状态监测/检测管道线程协议与ESD降频与门旁路/帧源/端到端含ESD与门/相机客户端与设备状态/日志门面异常隔离与文件日志并发/UI坐标换算与框选状态机/UI构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
+- 验证体系 = **全量回归 skill**（`.opencode/skill/全量回归验证/`：181 用例 harness 覆盖配置含EsdConfig与ROI标定写回/Mat互转/WPF宿主位图转换/后处理/可视化器/真实模型推理与过滤NMS双布局解析/姿态检测器/静电接触状态机与叠加渲染/门状态监测/检测管道线程协议与ESD降频与门旁路/帧源/端到端含ESD与门/相机客户端与设备状态/日志门面异常隔离与文件日志并发/UI坐标换算与框选状态机/WPF主窗口构造 + GUI 冒烟脚本；模块↔用例对账表见该 skill 的 SKILL.md）。
 - 涉及检测算法的改动，除跑 skill 外再用本地图片直接喂 `YoloV26Detector.Detect(Mat)` 做对照验证，确保坐标映射/过滤行为不变。
-- **界面像素级 bug（竖线/颜色/叠色/裁剪/滚动条）**：调用技能 `winforms-ui-debug`（独立 harness 直 new 目标窗体 + PrintWindow 截图 + 像素扫描定位根因）。
-- **调试完自动沉淀技能**：用 `winforms-ui-debug` 或其他套路排查成功后，主动把可复用的新踩坑/新探针回写到对应 SKILL.md 与本文件。
+- **界面像素级 bug（颜色/叠色/裁剪/滚动条/布局错位）**：WPF 界面用 desktop 工具套路目检（`desktop_launch` 启动 bin 下 exe → `desktop_find`/`desktop_snapshot` 按 AutomationId 定位控件 → `desktop_screenshot` 截窗口 → read 工具逐像素对照 `design/风格提案.html` 设计稿），必要时用 `desktop_click` 交互验证行为。
+- **调试完自动沉淀**：排查成功的可复用踩坑/探针回写到对应 SKILL.md 与本文件（WPF 坑位写入上文"WPF 玻璃拟态界面约定"小节）。
 
 ## 测试沉淀红线（强制，勿等用户提醒）
 

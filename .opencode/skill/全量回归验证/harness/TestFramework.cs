@@ -157,7 +157,7 @@ namespace YoloDetector.Tests
     }
 
     /// <summary>
-    /// 测试入口（STAThread：MainForm 构造冒烟需要 STA 线程）。
+    /// 测试入口（STAThread：MainWindow WPF 构造冒烟需要 STA 线程）。
     /// 用例按分区顺序执行；配置类有静态状态的放最前并在自身内部恢复现场。
     /// </summary>
     internal static class Program
@@ -171,7 +171,7 @@ namespace YoloDetector.Tests
 
             ConfigTests.RunAll();               // 配置层（会临时污染静态配置，内部自行恢复）
             MatExtensionsTests.RunAll();        // Mat↔SKBitmap 像素级无损
-            SkBitmapExtensionTests.RunAll();    // 宿主边界 SKBitmap→Drawing.Bitmap（含 Bgra8888 错位回归防线）
+            SkBitmapWpfTests.RunAll();          // WPF 宿主边界 SKBitmap→WriteableBitmap（含 Bgra8888 错位回归防线平移）
             ProcessorTests.RunAll();            // 后处理器行为红线
             VisualizerTests.RunAll();           // 可视化器契约
             DetectorTests.RunAll();             // YoloV26Detector 真实模型推理契约
@@ -186,11 +186,11 @@ namespace YoloDetector.Tests
             LogManagerTests.RunAll();           // 日志门面开关（复位全局状态）
             LoggerTests.RunAll();               // 文件日志契约（Close 后进程内日志静默，须在 UI 冒烟前）
             RoiSelectionTests.RunAll();         // ROI 拖拽标定纯逻辑（Zoom 坐标换算 + 框选状态机）
-            UiSmokeTests.RunAll();              // MainForm 构造/显示/关闭冒烟
+            UiSmokeTests.RunAll();              // MainWindow WPF 构造/显示/关闭冒烟（含 App 级主题资源加载）
 
             int fails = T.Finish();
 
-            // UI 冒烟之后统一收尾：确保日志系统关闭（MainForm.Close 已做，
+            // UI 冒烟之后统一收尾：确保日志系统关闭（MainWindow.Close 已做，
             // 但若该用例被跳过也兜底一次），避免句柄残留
             Infrastructure.Logging.Logger.Close();
             return fails;

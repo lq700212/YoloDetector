@@ -52,3 +52,6 @@ tmp_*
 .idea/
 TestResults/
 *.binlog
+# ===== AI 助手会话工作区 =====
+.zcode/
+.opencode/skill/*/snapshots/

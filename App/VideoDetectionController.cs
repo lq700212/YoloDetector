@@ -58,17 +58,19 @@ namespace YoloDetector.App
     ///
     /// 设计要点：
     ///   1. 帧所有权完全收拢在本类内部：FrameReady 的 Mat 由本类负责 Dispose，
-    ///      FrameProcessed 的 Mat 由本类转成 Bitmap 后立即 Dispose，UI 层零 Mat 接触，
+    ///      FrameProcessed 的 Mat 由本类转成 SKBitmap 后立即 Dispose，UI 层零 Mat 接触，
     ///      从根本上杜绝 UI 层忘记释放导致的内存泄漏
     ///   2. ONNX 模型实例跨会话复用（首次加载耗时秒级，重复启停预览无需重新加载）
     ///   3. UI 通过构造注入的两个回调接收结果：
-    ///      - previewSink(Bitmap)：Bitmap 所有权移交 UI（UI 替换显示时应 Dispose 旧图）
+    ///      - previewSink(SKBitmap)：SKBitmap 所有权移交 UI（UI 显示/调度失败时必须 Dispose）
+    ///        WPF 宿主经 SkBitmapWpfExtensions.WriteableBitmap 边界显示；位图类型用类库统一的
+    ///        SKBitmap（跨平台），本类不依赖任何具体 UI 框架（WinForms/WPF 皆可接入）
     ///      - detectionSink(快照列表)：结果为不可变快照，可自由持有
     ///      注意：两个回调均在后台线程触发，UI 侧实现必须自行做线程调度与防崩溃保护
     /// </summary>
     public sealed class VideoDetectionController : IDisposable
     {
-        private readonly Action<System.Drawing.Bitmap> _previewSink;
+        private readonly Action<SkiaSharp.SKBitmap> _previewSink;
         private readonly Action<List<YoloDetection.DetectionResult>> _detectionSink;
 
         private YoloDetection.IYoloDetector _detector;
@@ -110,7 +112,7 @@ namespace YoloDetector.App
         }
 
         public VideoDetectionController(
-            Action<System.Drawing.Bitmap> previewSink,
+            Action<SkiaSharp.SKBitmap> previewSink,
             Action<List<YoloDetection.DetectionResult>> detectionSink)
         {
             _previewSink = previewSink ?? throw new ArgumentNullException(nameof(previewSink));
@@ -434,30 +436,25 @@ namespace YoloDetector.App
             }
         }
 
-        /// <summary>管道出帧 → 转 Bitmap 后交 UI 显示。Mat 在此立即释放。</summary>
+        /// <summary>管道出帧 → 转 SKBitmap 后交 UI 显示。Mat 在此立即释放。</summary>
         private void OnFrameProcessed(object sender, OpenCvSharp.Mat frame)
         {
-            System.Drawing.Bitmap bitmap = null;
+            SkiaSharp.SKBitmap skb = null;
             try
             {
-                // 类库统一输出 SKBitmap（跨平台）；Windows 宿主在此边界转换为
-                // System.Drawing.Bitmap 供 PictureBox 显示（24bpp BGR 整块拷贝，约 0.5ms）
-                using (var skb = YoloDetection.MatExtensions.MatToSKBitmap(frame))
-                {
-                    if (skb != null)
-                    {
-                        bitmap = skb.ToDrawingBitmap();
-                    }
-                }
+                // 类库统一输出 SKBitmap（跨平台位图，Bgra8888），直接移交 UI 显示；
+                // WPF 宿主在显示边界经 SkBitmapWpfExtensions 写入 WriteableBitmap（整块拷贝），
+                // 本类不接触任何 UI 框架类型
+                skb = YoloDetection.MatExtensions.MatToSKBitmap(frame);
             }
             finally
             {
                 frame.Dispose();
             }
 
-            if (bitmap != null)
+            if (skb != null)
             {
-                _previewSink(bitmap); // 所有权移交给 UI
+                _previewSink(skb); // 所有权移交给 UI（显示后/调度失败时 Dispose）
             }
         }
 

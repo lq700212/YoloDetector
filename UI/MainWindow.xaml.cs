@@ -1,70 +1,95 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
+using System.Windows.Threading;
+using SkiaSharp;
+using YoloDetection;
 using YoloDetector.App;
 using YoloDetector.Cameras;
 using YoloDetector.Configuration;
-using YoloDetection;
 using YoloDetector.Infrastructure.Logging;
 
 namespace YoloDetector.UI
 {
     /// <summary>
-    /// 主窗体（纯视图层）。
+    /// 主窗口（纯视图层，玻璃拟态 Glass Aurora 版）。
     ///
-    /// 职责边界：
-    ///   - 只负责界面构建、用户交互与结果显示
+    /// 职责边界（与 WinForms 版 MainForm 一致）：
+    ///   - 只负责界面交互与结果显示
     ///   - 相机连接管理委托给 CameraController
     ///   - 视频检测编排委托给 VideoDetectionController（UI 层不接触任何 Mat/OpenCV 对象）
     ///
-    /// 后台回调安全约定：
-    ///   控制器的回调在后台线程触发，本窗体所有回调入口统一经过
-    ///   SafeBeginInvoke 保护（句柄检查 + 异常兜底），杜绝关闭窗口瞬间的崩溃。
+    /// 后台回调安全约定（WPF 版对应物）：
+    ///   控制器的回调在后台线程触发，本窗口所有回调入口统一经过
+    ///   SafeDispatcherInvoke 保护（Dispatcher 关停检查 + 异常兜底），
+    ///   调度失败时调用方就地释放随行资源（如 SKBitmap 帧），杜绝关闭窗口瞬间的崩溃与泄漏。
+    ///
+    /// 预览显示约定：
+    ///   previewSink 交出 SKBitmap 所有权 → 本窗口在 UI 线程经
+    ///   SkBitmapWpfExtensions.TryWriteTo 整块写入复用的 WriteableBitmap
+    ///   （分辨率不变时跨帧零大对象分配），SKBitmap 用完立即 Dispose。
     /// </summary>
-    public partial class MainForm : Form
+    public partial class MainWindow : Window
     {
         private readonly CameraController _cameraController = new CameraController();
         private VideoDetectionController _videoController;
 
-        private System.Windows.Forms.Timer _statusTimer;
+        private DispatcherTimer _statusTimer;
 
         // 最近一次检测结果快照（不可变副本，供扩展使用）
         private volatile List<DetectionResult> _lastDetections = new List<DetectionResult>();
         private long _detectionCount;
 
-        public MainForm()
+        /// <summary>预览画面拖拽框选的标定目标（决定 RoiSelected 结果分发给哪个检测功能）</summary>
+        private CalibTarget _calibTarget = CalibTarget.EsdPole;
+
+        /// <summary>标定目标枚举</summary>
+        private enum CalibTarget { EsdPole, Door }
+
+        /// <summary>当前通道号（对应 WinForms 版 numChannel.Value，0 ~ Stream.MaxChannel）</summary>
+        private int _channel;
+
+        /// <summary>预览显示位图（复用：分辨率不变时跨帧只 WritePixels，零大对象分配）</summary>
+        private WriteableBitmap _previewBitmap;
+
+        /// <summary>当前是否深色主题（初始深色，与设计稿默认一致）</summary>
+        private bool _isDarkTheme = true;
+
+        // 日志行数计数（WPF TextBox 无 WinForms 的 Lines 属性，自行计数驱动 500 行裁剪）
+        private int _logLineCount;
+        private const int MaxLogLines = 500;
+
+        public MainWindow()
         {
             InitializeComponent();
-            InitializeControllers();
+
+            // 输入框初值（与 WinForms 版 InitializeComponent 一致：来自运行配置）
+            txtIp.Text = AppConfig.Current.Connection.DefaultIp;
+            txtStreamUrl.Text = AppConfig.Current.Stream.GetRtspUrl(
+                AppConfig.Current.Connection.DefaultIp, 0);
         }
 
-        protected override void OnShown(EventArgs e)
+        /// <summary>窗口加载（对应 WinForms OnShown：句柄/界面就绪后再记录启动提示）</summary>
+        private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            base.OnShown(e);
-
-            // 句柄创建后再记录启动日志，确保能显示到UI面板
-            AddLog("程序已启动，请输入相机IP地址并点击【连接相机】");
-            AddLog("提示：连接成功后点击【开始预览】查看摄像头画面");
-            AddLog("提示：预览时可在画面上按住鼠标左键拖拽，框选静电杆检测区域（立即生效并保存）");
-        }
-
-        private void InitializeControllers()
-        {
-            _statusTimer = new System.Windows.Forms.Timer
+            // 状态轮询定时器（DispatcherTimer 走 UI 线程消息循环，对应 WinForms Timer）
+            _statusTimer = new DispatcherTimer
             {
-                Interval = AppConfig.Current.Preview.StatusRefreshIntervalMs
+                Interval = TimeSpan.FromMilliseconds(AppConfig.Current.Preview.StatusRefreshIntervalMs)
             };
             _statusTimer.Tick += StatusTimer_Tick;
 
             // ROI 拖拽标定：控件内部已封装鼠标接线/虚线框绘制/坐标换算，
             // 这里只订阅结果（归一化 ROI → 按当前标定目标分发：静电杆/门区域）。
-            // 控件与窗体同生命周期，事件无需成对退订（控件销毁即随链断开）
-            videoPictureBox.RoiSelected += roi =>
+            // 控件与窗口同生命周期，事件无需成对退订（窗口销毁即随链断开）
+            roiImage.RoiSelected += roi =>
             {
                 if (_calibTarget == CalibTarget.Door)
                 {
@@ -75,13 +100,13 @@ namespace YoloDetector.UI
                     ApplyEsdRoiSelection(roi.X, roi.Y, roi.W, roi.H);
                 }
             };
+
+            // 启动提示（与 WinForms 版一致；首次 AddLog 触发 Logger 惰性初始化，
+            // 文件日志写入"程序启动"分隔线——GUI 冒烟脚本的配对断言依赖此行为）
+            AddLog("程序已启动，请输入相机IP地址并点击【连接相机】");
+            AddLog("提示：连接成功后点击【开始预览】查看摄像头画面");
+            AddLog("提示：预览时可在画面上按住鼠标左键拖拽，框选静电杆检测区域（立即生效并保存）");
         }
-
-        /// <summary>预览画面拖拽框选的标定目标（决定 RoiSelected 结果分发给哪个检测功能）</summary>
-        private CalibTarget _calibTarget = CalibTarget.EsdPole;
-
-        /// <summary>标定目标枚举</summary>
-        private enum CalibTarget { EsdPole, Door }
 
         // ============================================================
         // 日志
@@ -92,41 +117,43 @@ namespace YoloDetector.UI
         {
             Logger.Write(message);
 
-            // 无法送达UI时（窗体关闭中）仅记录到文件，无需额外处理
-            SafeBeginInvoke(() => AppendLogToPanel(message));
+            // 无法送达UI时（窗口关闭中）仅记录到文件，无需额外处理
+            SafeDispatcherInvoke(() => AppendLogToPanel(message));
         }
 
         private void AppendLogToPanel(string message)
         {
-            if (txtLog == null || txtLog.IsDisposed)
+            if (txtLog == null)
             {
                 return;
             }
 
             string time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+            // 智能跟随：仅当滚动条已在底部时才自动滚到新行，
+            // 用户上翻历史日志时不会被强行拉回（WinForms 版滚动位置保护的同款语义）
+            bool atBottom = txtLog.ExtentHeight <= 0 ||
+                (txtLog.VerticalOffset + txtLog.ViewportHeight) >= txtLog.ExtentHeight - 1.0;
+
             txtLog.AppendText("[" + time + "] " + message + Environment.NewLine);
+            _logLineCount++;
 
             // 行数超限时裁掉前一半：AppendText 对长文本是 O(n) 操作且 TextBox
-            // 保留全部历史会持续吃内存，现场长时间运行必须限制（阈值 500 行）
-            const int MaxLogLines = 500;
-            if (txtLog.Lines.Length > MaxLogLines)
+            // 保留全部历史会持续吃内存，现场长时间运行必须限制（阈值 500 行）。
+            // WPF 无 Lines 属性，按换行切分；只在跨过阈值时执行（每 250 行一次），开销可忽略
+            if (_logLineCount > MaxLogLines)
             {
-                // 捕获当前滚动位置，裁剪后恢复，避免日志区自动跳回顶部
-                int scrollIndex = txtLog.GetFirstCharIndexOfCurrentLine();
-                var lines = txtLog.Lines;
-                var kept = new string[lines.Length - MaxLogLines / 2];
-                Array.Copy(lines, MaxLogLines / 2, kept, 0, kept.Length);
+                var lines = txtLog.Text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+                int cut = lines.Length - MaxLogLines / 2;
+                var kept = new string[lines.Length - cut];
+                Array.Copy(lines, cut, kept, 0, kept.Length);
                 txtLog.Text = string.Join(Environment.NewLine, kept) + Environment.NewLine;
-                if (scrollIndex >= txtLog.TextLength)
-                {
-                    scrollIndex = Math.Max(0, txtLog.TextLength - 1);
-                }
-                txtLog.SelectionStart = scrollIndex;
-                txtLog.ScrollToCaret();
+                _logLineCount = kept.Length;
             }
-            else
+
+            if (atBottom)
             {
-                txtLog.ScrollToCaret();
+                txtLog.ScrollToEnd();
             }
         }
 
@@ -134,7 +161,23 @@ namespace YoloDetector.UI
         // 相机连接
         // ============================================================
 
-        private async void btnConnect_Click(object sender, EventArgs e)
+        private async void btnConnect_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                await ConnectOrDisconnectAsync();
+            }
+            catch (Exception ex)
+            {
+                // async void 事件处理器的兜底：任何异常都不允许逃逸出 UI 消息循环
+                UpdateConnectionStatus(_cameraController.IsConnected);
+                AddLog("连接异常: " + ex.Message);
+                MessageBox.Show("连接异常: " + ex.Message, "错误",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async Task ConnectOrDisconnectAsync()
         {
             // 已连接则断开
             if (_cameraController.IsConnected)
@@ -151,13 +194,13 @@ namespace YoloDetector.UI
 
             if (string.IsNullOrEmpty(ip))
             {
-                MessageBox.Show("请输入相机IP地址！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("请输入相机IP地址！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             if (!IPAddress.TryParse(ip, out _))
             {
-                MessageBox.Show("请输入有效的IP地址！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("请输入有效的IP地址！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -186,7 +229,7 @@ namespace YoloDetector.UI
                     UpdateConnectionStatus(false);
                     AddLog("相机 " + ip + " 连接失败，请检查网络连接和IP地址");
                     MessageBox.Show("连接失败，请检查网络连接和IP地址！", "错误",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             catch (Exception ex)
@@ -194,7 +237,7 @@ namespace YoloDetector.UI
                 UpdateConnectionStatus(false);
                 AddLog("连接异常: " + ex.Message);
                 MessageBox.Show("连接异常: " + ex.Message, "错误",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -204,30 +247,46 @@ namespace YoloDetector.UI
 
         private void SetConnectingUi(bool connecting)
         {
-            btnConnect.Enabled = !connecting;
-            btnConnect.Text = connecting ? "连接中..." : (_cameraController.IsConnected ? "断开连接" : "连接相机");
+            btnConnect.IsEnabled = !connecting;
+            btnConnect.Content = connecting
+                ? "连接中..."
+                : (_cameraController.IsConnected ? "⏻ 断开连接" : "⏻ 连接相机");
         }
 
+        /// <summary>
+        /// 相机状态徽标：已连接 = 绿点 + 徽标绿字；未连接 = 红点 + 次要灰字。
+        /// WPF 用 SetResourceReference 做主题画刷的动态切换（跟随深浅主题自动更新）
+        /// </summary>
         private void UpdateConnectionStatus(bool connected)
         {
             if (lblStatus == null || btnConnect == null) return;
 
-            // lblStatus 位于天蓝色顶栏上，红/绿深色在蓝底上对比度差，
-            // 改用浅色调徽标配色（未连接=珊瑚白 / 已连接=薄荷白）
-            lblStatus.Text = connected ? "● 已连接" : "● 未连接";
-            lblStatus.ForeColor = connected
-                ? System.Drawing.Color.FromArgb(223, 247, 232)
-                : System.Drawing.Color.FromArgb(255, 225, 222);
-            btnConnect.Text = connected ? "断开连接" : "连接相机";
+            lblStatus.Text = connected ? "已连接" : "未连接";
+            badgeDot.SetResourceReference(Shape.FillProperty,
+                connected ? "SuccessBrush" : "DangerBrush");
+            lblStatus.SetResourceReference(TextBlock.ForegroundProperty,
+                connected ? "BadgeOkTextBrush" : "TextSubBrush");
+            // 徽标底色：已连接 = 徽标绿底；未连接 = 中性 ghost 底
+            //（绿底配红点不协调——玻璃徽标语义：底色随状态同步切换）
+            badgeStatus.SetResourceReference(Border.BackgroundProperty,
+                connected ? "BadgeOkBgBrush" : "GhostBgBrush");
+            btnConnect.Content = connected ? "⏻ 断开连接" : "⏻ 连接相机";
         }
 
         // ============================================================
         // 拉流/推流控制
         // ============================================================
 
-        private async void btnStartRtsp_Click(object sender, EventArgs e)
+        private async void btnStartRtsp_Click(object sender, RoutedEventArgs e)
         {
-            await SetRtspEnableAsync(true);
+            try
+            {
+                await SetRtspEnableAsync(true);
+            }
+            catch (Exception ex)
+            {
+                AddLog("操作异常: " + ex.Message);
+            }
         }
 
         private async Task SetRtspEnableAsync(bool enable)
@@ -252,15 +311,15 @@ namespace YoloDetector.UI
             }
         }
 
-        private async void btnStartRtmp_Click(object sender, EventArgs e)
+        private async void btnStartRtmp_Click(object sender, RoutedEventArgs e)
         {
-            if (!EnsureCameraConnected()) return;
-
-            int channel = GetChannel();
-            AddLog("开启通道 " + channel + " 推流...");
-
             try
             {
+                if (!EnsureCameraConnected()) return;
+
+                int channel = GetChannel();
+                AddLog("开启通道 " + channel + " 推流...");
+
                 string rtmpUrl = txtStreamUrl != null ? txtStreamUrl.Text.Trim() : string.Empty;
                 bool success = await _cameraController.SetRtmpAsync(channel, rtmpUrl, enable: true);
                 AddLog(success ? "开启推流成功！" : "推流失败");
@@ -277,13 +336,39 @@ namespace YoloDetector.UI
         {
             if (_cameraController.IsConnected) return true;
 
-            MessageBox.Show("请先连接相机！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("请先连接相机！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
 
         private int GetChannel()
         {
-            return numChannel != null ? (int)numChannel.Value : 0;
+            return _channel; // 范围已由 stepper 按钮约束（0 ~ Stream.MaxChannel）
+        }
+
+        private void btnChannelUp_Click(object sender, RoutedEventArgs e)
+        {
+            if (_channel < AppConfig.Current.Stream.MaxChannel)
+            {
+                _channel++;
+                SyncChannelText();
+            }
+        }
+
+        private void btnChannelDown_Click(object sender, RoutedEventArgs e)
+        {
+            if (_channel > 0)
+            {
+                _channel--;
+                SyncChannelText();
+            }
+        }
+
+        /// <summary>同步两处 stepper 显示（顶栏 + 左栏"通道与标定"卡，设计稿两处都有入口）</summary>
+        private void SyncChannelText()
+        {
+            string text = _channel.ToString();
+            txtChannel.Text = text;
+            txtChannelTop.Text = text;
         }
 
         // ============================================================
@@ -315,9 +400,9 @@ namespace YoloDetector.UI
                 if (status == null) return;
 
                 string text = BuildStatusText(status);
-                SafeBeginInvoke(() =>
+                SafeDispatcherInvoke(() =>
                 {
-                    if (txtStatusInfo != null && !txtStatusInfo.IsDisposed)
+                    if (txtStatusInfo != null)
                     {
                         txtStatusInfo.Text = text;
                     }
@@ -332,14 +417,13 @@ namespace YoloDetector.UI
         private static string BuildStatusText(DeviceStatus status)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("=== 设备基本信息 ===");
-            sb.AppendLine("IP地址: " + status.IpAddress);
-            sb.AppendLine("品牌: " + status.Brand);
-            sb.AppendLine("CPU使用率: " + status.CpuUsage.ToString("F1") + "%");
-            sb.AppendLine("内存使用率: " + status.MemoryUsage.ToString("F1") + "%");
+            sb.AppendLine("IP地址:   " + status.IpAddress);
+            sb.AppendLine("品牌:     " + status.Brand);
+            sb.AppendLine("CPU:      " + status.CpuUsage.ToString("F1") + "%");
+            sb.AppendLine("内存:     " + status.MemoryUsage.ToString("F1") + "%");
             sb.AppendLine("磁盘总量: " + status.GetFormattedDiskTotal());
             sb.AppendLine("磁盘可用: " + status.GetFormattedDiskFree());
-            sb.AppendLine("磁盘使用率: " + status.GetDiskUsage().ToString("F1") + "%");
+            sb.AppendLine("使用率:   " + status.GetDiskUsage().ToString("F1") + "%");
             sb.AppendLine("录像总数: " + status.TotalVideoCount);
             return sb.ToString();
         }
@@ -348,12 +432,12 @@ namespace YoloDetector.UI
         // 视频预览与YOLO检测
         // ============================================================
 
-        private void btnStartPreview_Click(object sender, EventArgs e)
+        private void btnStartPreview_Click(object sender, RoutedEventArgs e)
         {
             StartVideoPreview();
         }
 
-        private void btnStopPreview_Click(object sender, EventArgs e)
+        private void btnStopPreview_Click(object sender, RoutedEventArgs e)
         {
             StopVideoPreview();
             AddLog("================== 预览流程结束 ==================");
@@ -402,7 +486,7 @@ namespace YoloDetector.UI
                     RtspUrl = rtspUrl,
                     // 注入 UI 日志回调：检测线程的异常/过程日志同步显示到界面面板，
                     // 否则现场排查"为什么检测不到"只能翻日志文件
-                    LogSink = msg => SafeBeginInvoke(() => AppendLogToPanel(msg)),
+                    LogSink = msg => SafeDispatcherInvoke(() => AppendLogToPanel(msg)),
                     // 静电杆触摸检测旁路：模型/参数从 esdConfig.json 来；
                     // Enabled=false 时传 null 等价于关闭，管道零开销
                     PoseModelPath = AppConfig.Esd.Enabled
@@ -414,10 +498,12 @@ namespace YoloDetector.UI
 
                 _videoController.Start(options);
 
-                if (lblVideoTitle != null)
-                {
-                    lblVideoTitle.Visible = false;
-                }
+                // 隐藏占位提示 + 显示视频角标（本次预览的实际流地址与通道）
+                lblVideoTitle.Visibility = Visibility.Collapsed;
+                lblStreamBadge.Text = rtspUrl;
+                lblChannelBadge.Text = "通道 " + GetChannel();
+                badgeStream.Visibility = Visibility.Visible;
+                badgeChannel.Visibility = Visibility.Visible;
 
                 AddLog("YOLO检测已启动");
             }
@@ -425,14 +511,14 @@ namespace YoloDetector.UI
             {
                 AddLog("YOLO模型文件不存在: " + fnfEx.FileName);
                 MessageBox.Show("YOLO模型文件不存在: " + fnfEx.FileName, "错误",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
             catch (Exception ex)
             {
                 AddLog("视频预览启动失败: " + ex.Message);
                 MessageBox.Show(
                     "视频预览启动失败！\n\n请检查：\n1. RTSP流地址是否正确\n2. 相机是否开启视频输出\n3. 网络连接是否正常\n\n详细信息: " + ex.Message,
-                    "视频预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    "视频预览失败", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -446,7 +532,9 @@ namespace YoloDetector.UI
 
             if (lblVideoTitle != null)
             {
-                SafeBeginInvoke(() => { if (lblVideoTitle.Visible == false) lblVideoTitle.Visible = true; });
+                lblVideoTitle.Visibility = Visibility.Visible;
+                badgeStream.Visibility = Visibility.Collapsed;
+                badgeChannel.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -459,7 +547,7 @@ namespace YoloDetector.UI
                 detectionSink: OnDetectionsReceived);
 
             // 静电触摸状态翻转 → 日志面板提示（仅在事件帧触发一次，不会刷屏）。
-            // 回调在检测线程触发，经 SafeBeginInvoke 调度回 UI 线程。
+            // 回调在检测线程触发，经 SafeDispatcherInvoke 调度回 UI 线程。
             // 结束事件带"本次持续时长"（分析器在清零前记录的最终值）：
             // Hold=400ms 下拍一下(0.3~0.5秒)与长摸(数秒)都触发同一事件，
             // 现场靠这个时长区分动作类型、审计误判。
@@ -468,7 +556,7 @@ namespace YoloDetector.UI
                 string msg = e.InContact
                     ? $"⚡人员#{e.TrackId} 正在触摸静电杆 (持续{e.ContactElapsedMs / 1000.0:F1}秒)"
                     : $"人员#{e.TrackId} 结束触摸静电杆 (本次持续{e.ContactElapsedMs / 1000.0:F1}秒)";
-                SafeBeginInvoke(() => AddLog(msg));
+                SafeDispatcherInvoke(() => AddLog(msg));
             };
 
             // 门状态翻转 → 日志提示（分析器内部已防抖，仅翻转帧触发一次）
@@ -477,7 +565,7 @@ namespace YoloDetector.UI
                 string msg = isOpen
                     ? "⚠操作间门被打开（请确认是否合规操作）"
                     : "✓操作间门已关闭";
-                SafeBeginInvoke(() => AddLog(msg));
+                SafeDispatcherInvoke(() => AddLog(msg));
             };
         }
 
@@ -514,35 +602,58 @@ namespace YoloDetector.UI
         // ============================================================
 
         /// <summary>
-        /// 预览帧回调：Bitmap 所有权移交本方法。
-        /// 经 SafeBeginInvoke 调度到 UI 线程后显示；调度失败时立即释放防止泄漏。
+        /// 预览帧回调：SKBitmap 所有权移交本方法。
+        /// 经 SafeDispatcherInvoke 调度到 UI 线程后写入显示位图；
+        /// 调度失败时立即释放防止泄漏。
         /// </summary>
-        private void OnPreviewFrameReceived(Bitmap frame)
+        private void OnPreviewFrameReceived(SKBitmap frame)
         {
-            if (!SafeBeginInvoke(() => ShowPreviewFrame(frame)))
+            if (!SafeDispatcherInvoke(() => ShowPreviewFrame(frame)))
             {
-                frame.Dispose(); // 无法送达UI（如窗体正在关闭），就地释放
+                frame.Dispose(); // 无法送达UI（如窗口正在关闭），就地释放
             }
         }
 
-        private void ShowPreviewFrame(Bitmap frame)
+        /// <summary>
+        /// 显示预览帧（UI 线程）：整块写入复用的 WriteableBitmap；
+        /// 分辨率变化（含首帧）时按帧规格重建。SKBitmap 用完立即 Dispose。
+        /// </summary>
+        private void ShowPreviewFrame(SKBitmap frame)
         {
-            if (videoPictureBox == null || videoPictureBox.IsDisposed)
+            try
+            {
+                if (roiImage == null)
+                {
+                    return;
+                }
+
+                if (_previewBitmap == null ||
+                    _previewBitmap.PixelWidth != frame.Width ||
+                    _previewBitmap.PixelHeight != frame.Height)
+                {
+                    var bmp = frame.CreateMatchingWriteableBitmap();
+                    if (bmp == null)
+                    {
+                        return; // 格式不受支持（理论上不会发生：类库固定输出 Bgra8888）
+                    }
+
+                    _previewBitmap = bmp; // 旧位图无 Dispose 语义，随 GC 回收
+                    roiImage.Source = _previewBitmap;
+                }
+
+                frame.TryWriteTo(_previewBitmap); // 整块拷贝（Bgra8888→Bgra32 直接对齐）
+            }
+            finally
             {
                 frame.Dispose();
-                return;
             }
-
-            var old = videoPictureBox.Image;
-            videoPictureBox.Image = frame;
-            old?.Dispose();
         }
 
         // ============================================================
-        // 静电杆 ROI 拖拽标定（预览画面上框选静电杆区域）
+        // 静电杆 ROI 拖拽标定（预览画面上框选静电杆/门区域）
         //
-        // 交互封装在 RoiSelectionPictureBox 控件内（鼠标/绘制/坐标换算），
-        // 本窗体只消费结果：热更新运行链路 + 配置落盘。
+        // 交互封装在 RoiSelectionImage 控件内（鼠标/绘制/坐标换算），
+        // 本窗口只消费结果：热更新运行链路 + 配置落盘。
         // ============================================================
 
         /// <summary>
@@ -581,20 +692,22 @@ namespace YoloDetector.UI
 
         /// <summary>
         /// 切换拖拽框选的标定目标：静电杆区域 ↔ 门区域。
-        /// 按钮文本同步更新，让现场明确当前拖拽框选的是哪个检测区域。
+        /// 设计稿在左栏"通道与标定"卡与视频浮层各有一处入口，两处按钮文本同步更新。
         /// </summary>
-        private void btnCalibTarget_Click(object sender, EventArgs e)
+        private void btnCalibTarget_Click(object sender, RoutedEventArgs e)
         {
             if (_calibTarget == CalibTarget.EsdPole)
             {
                 _calibTarget = CalibTarget.Door;
-                btnCalibTarget.Text = "标定:门区域";
+                btnCalibTarget.Content = "标定: 门区域";
+                btnCalibTargetSide.Content = "标定: 门区域";
                 AddLog("标定目标已切换为【门区域】——在预览画面上拖拽框选门的位置");
             }
             else
             {
                 _calibTarget = CalibTarget.EsdPole;
-                btnCalibTarget.Text = "标定:静电杆";
+                btnCalibTarget.Content = "标定: 静电杆";
+                btnCalibTargetSide.Content = "标定: 静电杆";
                 AddLog("标定目标已切换为【静电杆区域】——在预览画面上拖拽框选静电杆位置");
             }
         }
@@ -603,7 +716,7 @@ namespace YoloDetector.UI
         /// 重设关门基准：用最近一帧预览画面采集（必须门关着的时候点）。
         /// 基准内存生效并落盘 PNG，重启不丢。
         /// </summary>
-        private void btnDoorBaseline_Click(object sender, EventArgs e)
+        private void btnDoorBaseline_Click(object sender, RoutedEventArgs e)
         {
             if (_videoController == null || !_videoController.IsRunning)
             {
@@ -646,29 +759,76 @@ namespace YoloDetector.UI
         }
 
         // ============================================================
+        // 主题切换（深色 ↔ 浅色）
+        // ============================================================
+
+        private void btnTheme_Click(object sender, RoutedEventArgs e)
+        {
+            ApplyTheme(!_isDarkTheme);
+        }
+
+        /// <summary>
+        /// 切换深/浅主题：把 App 资源里的 Palette.* 字典原位替换（Dark ↔ Light）。
+        /// 全部颜色经 DynamicResource 引用同名 key，替换即整体换肤，样式文件零改动。
+        /// </summary>
+        private void ApplyTheme(bool dark)
+        {
+            // 必须用"程序集名;component"形式的显式 pack URI：相对形式在 net472 运行时
+            // 按 file:// 解析会 IOException；不带程序集名的 pack 形式只解析入口程序集，
+            // 回归 harness 里加载主窗口时找不到资源（与 App.xaml 同一坑位，见其注释）
+            string source = dark
+                ? "pack://application:,,,/YoloDetector;component/UI/Themes/Palette.Dark.xaml"
+                : "pack://application:,,,/YoloDetector;component/UI/Themes/Palette.Light.xaml";
+            var newDict = new ResourceDictionary { Source = new Uri(source, UriKind.Absolute) };
+
+            var merged = Application.Current.Resources.MergedDictionaries;
+            for (int i = 0; i < merged.Count; i++)
+            {
+                var s = merged[i].Source;
+                if (s != null && s.OriginalString.Contains("Palette."))
+                {
+                    merged[i] = newDict; // 原位替换，保持字典顺序（画刷先于样式解析）
+                    break;
+                }
+            }
+
+            _isDarkTheme = dark;
+            btnTheme.ToolTip = dark ? "切换到浅色主题" : "切换到深色主题";
+        }
+
+        // ============================================================
         // 线程安全UI工具
         // ============================================================
 
         /// <summary>
-        /// 安全地把动作调度到UI线程执行。
-        /// 返回 false 表示无法送达（句柄未创建或窗体正在销毁）。
-        /// 绝不抛出因窗体生命周期导致的异常。
+        /// 安全地把动作调度到 UI 线程执行（WinForms SafeBeginInvoke 的 WPF 对应物）。
+        /// 返回 false 表示无法送达（Dispatcher 已开始关停），调用方应就地释放随行资源。
+        /// 绝不抛出因窗口生命周期导致的异常。
         /// </summary>
-        private bool SafeBeginInvoke(Action action)
+        private bool SafeDispatcherInvoke(Action action)
         {
             try
             {
-                Control target = this;
-                if (IsDisposed || Disposing || !IsHandleCreated)
+                var dispatcher = Dispatcher;
+                if (dispatcher == null ||
+                    dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
                 {
                     return false;
                 }
 
-                target.BeginInvoke(action);
+                if (dispatcher.CheckAccess())
+                {
+                    action();
+                }
+                else
+                {
+                    dispatcher.BeginInvoke(action);
+                }
                 return true;
             }
-            catch (ObjectDisposedException)
+            catch (TaskCanceledException)
             {
+                // Dispatcher 关停瞬间 BeginInvoke 可能被取消
                 return false;
             }
             catch (InvalidOperationException)
@@ -678,21 +838,20 @@ namespace YoloDetector.UI
         }
 
         // ============================================================
-        // 窗体生命周期
+        // 窗口生命周期
         // ============================================================
 
-        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        private void Window_Closed(object sender, EventArgs e)
         {
-            // 顺序很重要：
+            // 顺序很重要（与 WinForms 版 FormClosing 一致）：
             // 1. 先停定时器（阻止新的异步轮询）
             // 2. 停止视频检测链路（有界等待后台线程退出，之后不会再有帧回调）
             // 3. 清除检测模块的UI日志回调
-            // 4. 释放PictureBox当前图像
-            // 5. 关闭文件日志
+            // 4. 释放预览画面引用
+            // 5. 关闭文件日志（写"程序退出"分隔线，GUI 冒烟脚本依赖此配对标记）
             if (_statusTimer != null)
             {
                 _statusTimer.Stop();
-                _statusTimer.Dispose();
                 _statusTimer = null;
             }
 
@@ -704,11 +863,10 @@ namespace YoloDetector.UI
 
             LogManager.ClearUiSink();
 
-            if (videoPictureBox != null)
+            if (roiImage != null)
             {
-                var img = videoPictureBox.Image;
-                videoPictureBox.Image = null;
-                img?.Dispose();
+                roiImage.Source = null; // WPF 位图无 Dispose 语义，断开引用交给 GC
+                _previewBitmap = null;
             }
 
             Logger.Close();

@@ -1,0 +1,90 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        玻璃拟态主题 · 深色调色板（Galaxy/Aurora 深色版，与 design/风格提案.html 方案三一致）
+        - 本文件只定义"画刷"，控件样式在 GalaxyTheme.xaml 里通过 DynamicResource 引用同名的
+          key——运行时把 MergedDictionaries 里的 Palette.* 原位替换为 Palette.Light.xaml
+          即可整体切到浅色（见 MainWindow.ApplyTheme），样式文件零改动。
+        - 颜色值全部来自设计稿（Uiverse glassmorphism 流派高频值），改色请同步设计稿。
+    -->
+
+    <!-- 窗口背景：蓝紫→深青 140° 渐变 -->
+    <LinearGradientBrush x:Key="BgGradientBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#10121D" Offset="0"/>
+        <GradientStop Color="#171A2E" Offset="0.55"/>
+        <GradientStop Color="#0E2233" Offset="1"/>
+    </LinearGradientBrush>
+    <!-- 背景光斑（两个大椭圆，Radial 中心不透明→边缘全透明，等效 CSS blur(90px) 光斑；
+         中段补一个渐变站让衰减放缓——CSS blur 的光晕边缘更"摊开"，线性衰减会显得太弱） -->
+    <RadialGradientBrush x:Key="Blob1Brush">
+        <GradientStop Color="#B35B42F3" Offset="0"/>
+        <GradientStop Color="#665B42F3" Offset="0.45"/>
+        <GradientStop Color="#005B42F3" Offset="1"/>
+    </RadialGradientBrush>
+    <RadialGradientBrush x:Key="Blob2Brush">
+        <GradientStop Color="#A600A8BD" Offset="0"/>
+        <GradientStop Color="#5900A8BD" Offset="0.45"/>
+        <GradientStop Color="#0000A8BD" Offset="1"/>
+    </RadialGradientBrush>
+
+    <!-- 玻璃卡片：半透明白 + 细白描边（WPF 无 backdrop-filter，背景为静态渐变，
+         半透明即等效玻璃观感；透明度较 CSS 版明显调高补偿无模糊带来的对比度损失，
+         保证卡片轮廓与内部亮度像设计稿一样从背景里"浮"出来） -->
+    <SolidColorBrush x:Key="GlassBrush" Color="#20FFFFFF"/>
+    <SolidColorBrush x:Key="GlassStrongBrush" Color="#26FFFFFF"/>
+    <SolidColorBrush x:Key="GlassBorderBrush" Color="#33FFFFFF"/>
+
+    <!-- 文字 -->
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#EEF1FA"/>
+    <SolidColorBrush x:Key="TextSubBrush" Color="#9BA6C0"/>
+    <SolidColorBrush x:Key="TextPhBrush" Color="#5A6480"/>
+
+    <!-- 主色 / 语义色 -->
+    <SolidColorBrush x:Key="PrimaryBrush" Color="#6C7BFF"/>
+    <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#7D8BFF"/>
+    <SolidColorBrush x:Key="PrimaryGlowBrush" Color="#666C7BFF"/>
+    <SolidColorBrush x:Key="OnPrimaryBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="#4EE6A8"/>
+    <SolidColorBrush x:Key="SuccessHoverBrush" Color="#6BEFB9"/>
+    <SolidColorBrush x:Key="OnSuccessBrush" Color="#08301F"/>
+    <SolidColorBrush x:Key="SuccessGlowBrush" Color="#594EE6A8"/>
+    <SolidColorBrush x:Key="DangerBrush" Color="#FF6B81"/>
+    <SolidColorBrush x:Key="DangerHoverBrush" Color="#FF8596"/>
+    <SolidColorBrush x:Key="OnDangerBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="DangerGlowBrush" Color="#4DFF6B81"/>
+    <SolidColorBrush x:Key="WarnBrush" Color="#FFB85C"/>
+    <SolidColorBrush x:Key="InfoBrush" Color="#7DD3FC"/>
+
+    <!-- 次级按钮（ghost）与输入框 -->
+    <SolidColorBrush x:Key="GhostBgBrush" Color="#14FFFFFF"/>
+    <SolidColorBrush x:Key="GhostBorderBrush" Color="#29FFFFFF"/>
+    <SolidColorBrush x:Key="InputBgBrush" Color="#40000000"/>
+    <SolidColorBrush x:Key="InputBorderBrush" Color="#24FFFFFF"/>
+    <SolidColorBrush x:Key="DividerBrush" Color="#26FFFFFF"/>
+
+    <!-- 状态徽标（已连接） -->
+    <SolidColorBrush x:Key="BadgeOkBgBrush" Color="#1F4EE6A8"/>
+    <SolidColorBrush x:Key="BadgeOkTextBrush" Color="#4EE6A8"/>
+    <SolidColorBrush x:Key="BadgeOkBorderBrush" Color="#594EE6A8"/>
+
+    <!-- 日志区 -->
+    <SolidColorBrush x:Key="LogTextBrush" Color="#A9B2CB"/>
+    <SolidColorBrush x:Key="LogTimeBrush" Color="#5E6880"/>
+
+    <!-- 视频画面元素：恒定深色（画面永远压深色内容，不随主题翻转，
+         与设计稿 .m-float-bar/.fps-badge 的固定配色一致） -->
+    <!-- 视频容器底：深色（对应设计稿 .m-video 的深黑渐变；若直接用玻璃白底，
+         画面未启动时整块呈灰白色，观感与设计稿不符——实测踩坑） -->
+    <SolidColorBrush x:Key="VideoCardBgBrush" Color="#A80A0C10"/>
+    <SolidColorBrush x:Key="VideoOverlayBrush" Color="#A80A0C10"/>
+    <SolidColorBrush x:Key="VideoBorderBrush" Color="#1AFFFFFF"/>
+    <SolidColorBrush x:Key="VideoBadgeBgBrush" Color="#B80A0C10"/>
+    <SolidColorBrush x:Key="VideoBadgeTextBrush" Color="#CFD6E0"/>
+    <SolidColorBrush x:Key="VideoHintBrush" Color="#3D4552"/>
+    <SolidColorBrush x:Key="VideoGhostBgBrush" Color="#14FFFFFF"/>
+    <SolidColorBrush x:Key="VideoGhostTextBrush" Color="#E8ECF1"/>
+
+    <!-- 滚动条 -->
+    <SolidColorBrush x:Key="ScrollBarBrush" Color="#33FFFFFF"/>
+    <SolidColorBrush x:Key="ScrollBarHoverBrush" Color="#55FFFFFF"/>
+</ResourceDictionary>

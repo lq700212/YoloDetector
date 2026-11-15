@@ -1,0 +1,27 @@
+<Application x:Class="YoloDetector.UI.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnMainWindowClose">
+    <!--
+        WPF 应用入口（替换原 WinForms Program.cs；STAThread 语义由 WPF 宿主自动保证）。
+        - 窗口创建放 App.xaml.cs 的 OnStartup（不用 StartupUri）：
+          保持与 WinForms 版一致的"日志先行"时序——首次 Logger.Write 在窗口显示前由
+          主窗口流程触发，文件日志出现"程序启动"分隔线（GUI 冒烟断言依赖）。
+        - 资源字典：Palette.Dark（默认深色）在前、控件样式在后；
+          运行时切换主题 = 原位替换 Palette.* 字典（见 MainWindow.ApplyTheme）。
+    -->
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- 必须用显式 pack URI（两点原因，实测踩坑）：
+                     1. 相对形式（"UI/Themes/..."）在 net472 运行时被当作 file:// 相对路径
+                        解析，启动即 XamlParseException；
+                     2. 用"程序集名;component"形式显式指向 YoloDetector 程序集——默认形式
+                        解析到入口程序集，回归 harness（入口为 Tests.exe）加载主窗口时
+                        也依赖同样的 URI。 -->
+                <ResourceDictionary Source="pack://application:,,,/YoloDetector;component/UI/Themes/Palette.Dark.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/YoloDetector;component/UI/Themes/GalaxyTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

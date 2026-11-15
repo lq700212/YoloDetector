@@ -2,13 +2,17 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net472</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <!-- v2.10 起界面层为 WPF（玻璃拟态主题），原 WinForms/SunnyUI 已整体移除；
+         检测类库/相机/配置/App 编排层与 UI 框架无关，未受影响 -->
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>7.3</LangVersion>
     <PlatformTarget>x64</PlatformTarget>
-    <!-- App/SkBitmapExtensions 的整块内存拷贝使用 Buffer.MemoryCopy 指针重载 -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+  <!-- WPF 应用入口：App.xaml 作为 ApplicationDefinition（其余 .xaml 由 SDK 自动当 Page 编译） -->
+  <ItemGroup>
+    <ApplicationDefinition Include="UI\App.xaml" />
+  </ItemGroup>
   <!-- 检测模块已拆分为独立类库（Detection/YoloDetector.Detection.csproj），
        此处排除其源码避免重复编译，经项目引用使用 -->
   <ItemGroup>
@@ -19,10 +23,8 @@
   </ItemGroup>
   <ItemGroup>
     <!-- 全部依赖均 vendor 到 Detection\libs（零 NuGet、克隆即编译，工厂无网环境可用）：
-         SunnyUI/Newtonsoft.Json 原为 NuGet 包，已按 net472/net45 目标复制 DLL 进 libs，
-         传递依赖链为空（SunnyUI→SunnyUI.Common，Newtonsoft.Json(net45) 无依赖） -->
-    <Reference Include="SunnyUI"><HintPath>Detection\libs\SunnyUI.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="SunnyUI.Common"><HintPath>Detection\libs\SunnyUI.Common.dll</HintPath><Private>true</Private></Reference>
+         Newtonsoft.Json 原 NuGet 包已按 net45 目标复制 DLL 进 libs，传递依赖链为空
+         （SunnyUI 为 WinForms 界面库，v2.10 起 WPF 化后不再引用） -->
     <Reference Include="Newtonsoft.Json"><HintPath>Detection\libs\Newtonsoft.Json.dll</HintPath><Private>true</Private></Reference>
     <!-- OpenCvSharp/OnnxRuntime 已 vendor 到 Detection\libs（离线编译）；
          native 运行库经类库 csproj 的 None 项流转到本输出目录 -->

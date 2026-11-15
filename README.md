@@ -2,13 +2,13 @@
 
 # YoloDetector
 
-**RTSP 摄像头实时人员检测 + 静电杆触摸 / 门状态联防 —— WinForms + OpenCvSharp + ONNX Runtime，全离线零 NuGet**
+**RTSP 摄像头实时人员检测 + 静电杆触摸 / 门状态联防 —— WPF（玻璃拟态界面）+ OpenCvSharp + ONNX Runtime，全离线零 NuGet**
 
 ![.NET Framework 4.7.2](https://img.shields.io/badge/.NET_Framework-4.7.2_C%23_7.3-5C2D91?logo=dotnet)
 ![OpenCvSharp 4.10](https://img.shields.io/badge/OpenCvSharp-4.10-5C3EE8)
 ![ONNX Runtime 1.20](https://img.shields.io/badge/ONNX_Runtime-1.20-005CED)
-![regression tests](https://img.shields.io/badge/regression_tests-180_passing-brightgreen)
-![platform](https://img.shields.io/badge/platform-x64_WinForms-blue)
+![regression tests](https://img.shields.io/badge/regression_tests-181_passing-brightgreen)
+![platform](https://img.shields.io/badge/platform-x64_WPF-blue)
 
 接入网络摄像头后逐帧 YOLO 推理，检测框 + 类别 + 置信度实时叠加到预览窗口，**推理全程在本机完成，不依赖 Python 环境**。在人员检测之上还内置了工厂防静电两件套：
 
@@ -17,7 +17,9 @@
 
 `Detection/` 检测域是**可整体迁移的独立类库**（net472 + netstandard2.0 双目标、Windows/Linux native 运行库全部 vendor 入 git），整个目录复制到任何 .NET 项目即可接入目标检测能力。
 
-<img width="1282" height="832" alt="运行效果：预览画面叠加 YOLO 检测框与静电杆 ROI" src="https://github.com/user-attachments/assets/afe82f04-2a00-4192-8c70-d507c52a1787" />
+<img width="1282" height="802" alt="运行效果（深色模式）：玻璃拟态界面" src="docs/images/screenshot-dark.png" />
+
+<img width="1282" height="802" alt="运行效果（浅色模式）：玻璃拟态界面" src="docs/images/screenshot-light.png" />
 
 </div>
 
@@ -40,12 +42,12 @@
 
 | 组件 | 用途 |
 | --- | --- |
-| .NET Framework 4.7.2 (C# 7.3, x64) | WinForms 桌面应用 |
+| .NET Framework 4.7.2 (C# 7.3, x64) | WPF 桌面应用（原生控件 + 自定义玻璃拟态主题，深/浅双模式） |
 | [OpenCvSharp4](https://github.com/shimat/opencvsharp) 4.10 | RTSP 捕获、图像处理、绘制（已 vendor，离线编译） |
 | [Microsoft.ML.OnnxRuntime](https://github.com/microsoft/onnxruntime) 1.20 | YOLO 模型推理（已 vendor，离线编译） |
 | [SkiaSharp](https://github.com/mono/SkiaSharp) 2.88 | 跨平台位图与绘制后端（检测模块统一使用，已 vendor） |
 | Newtonsoft.Json 13.0.3 | 配置序列化（已 vendor，离线编译） |
-| [SunnyUI](https://github.com/yhuse/SunnyUI) 3.9.8 | WinForms 界面控件库（已 vendor，离线编译） |
+| WPF (PresentationFramework) | 界面层（net472 内置，零第三方 UI 库；主题字典 `UI/Themes/`） |
 
 > 全部依赖 DLL 均内置仓库 `Detection\libs\`（含 native 运行库，Windows 与 Linux 双平台共约 201MB），**编译与运行零 NuGet、零网络**——新机器 `git clone` 后直接构建即可。
 
@@ -53,7 +55,7 @@
 
 ```mermaid
 graph LR
-    UI["UI 层<br/>MainForm（纯交互 + 布局 partial）"]
+    UI["UI 层（WPF）<br/>MainWindow + 玻璃拟态主题字典"]
     APP["编排层 App<br/>VideoDetectionController / CameraController"]
     DET["检测域 Detection【独立类库 YoloDetection】<br/>帧源 → 检测管道 → 后处理 → 可视化"]
     CAM["相机域 Cameras<br/>ICameraApi + 品牌实现 + 工厂"]
@@ -66,16 +68,15 @@ graph LR
     CAM --> INF
 ```
 
-- 依赖方向严格单向：`UI → App → Detection/Cameras → Infrastructure/Configuration`，严禁反向；UI 层只接触 Bitmap 与结果快照，禁止接触 OpenCV Mat
+- 依赖方向严格单向：`UI → App → Detection/Cameras → Infrastructure/Configuration`，严禁反向；UI 层只接触 SKBitmap/WriteableBitmap 与结果快照，禁止接触 OpenCV Mat
 - `Detection/` 编译为独立类库 `YoloDetector.Detection.dll`，禁止引用宿主业务命名空间（日志经委托注入、配置经方法参数注入），整目录复制到其他解决方案即可迁移
 
 ## 项目结构
 
 ```
 YoloDetector/
-├── Program.cs              入口
-├── UI/                     视图层（MainForm 纯交互 + Layout 布局 partial）
-├── App/                    编排层（视频检测控制器 / 相机连接控制器 / SKBitmap 显示转换）
+├── UI/                     视图层（WPF）：App.xaml 入口 + MainWindow + Themes 玻璃拟态主题 + RoiSelectionImage 框选控件
+├── App/                    编排层（视频检测控制器 / 相机连接控制器 / SKBitmap→WriteableBitmap 显示转换）
 ├── Detection/              检测域【独立类库】：帧源 / 检测管道 / YOLO检测器 / 姿态检测器 / 静电接触分析 / 门监测 / 可视化器 / 后处理器
 │   ├── libs/               离线托管依赖（已入 git）+ libs/native/ 运行库（Windows/Linux 双平台）
 │   ├── yoloConfig.json     YOLO 运行参数
@@ -111,10 +112,11 @@ dotnet build YoloDetector.csproj -v q
 ### 使用步骤
 
 1. 启动 `YoloDetector.exe`
-2. 左侧输入**相机 IP** → 点击【连接相机】（TCP 探测 RTSP 端口，10 秒超时）
-3. 确认流地址正确（默认模板见 `cameraConfigs\ANGEHUA.json` 的 `RtspUrlFormat`，如 `rtsp://{ip}:{port}/ch01.264`）
+2. 顶栏输入**相机 IP** → 左栏【相机】卡点击【连接相机】（TCP 探测 RTSP 端口，10 秒超时）
+3. 确认流地址正确（默认模板见 `cameraConfigs\ANGEHUA.json` 的 `RtspUrlFormat`，如 `rtsp://{ip}:{port}/ch01.264`；连接成功后自动回填）
 4. 点击【开始预览】→ 右侧窗口显示带检测框的实时画面；【停止预览】结束
 5. 【开启拉流】/【开启推流】用于控制相机端的流开关（依相机固件支持而定）
+6. 右上角 ◐ 可随时切换深色 / 浅色主题
 
 ## 配置说明
 

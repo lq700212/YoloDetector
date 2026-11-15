@@ -1,6 +1,6 @@
 ﻿---
 name: "全量回归验证"
-description: "YoloDetector 一键全量回归验证：构建主项目、运行 180 个进程内回归用例（配置含EsdConfig与ROI标定写回/YoloConfig与URL兜底/Mat互转/宿主位图转换/后处理/可视化器/YOLO检测器过滤与NMS与双布局解析/姿态检测器/静电接触分析器与叠加渲染/门状态监测/检测管道线程协议与ESD降频与门旁路/帧源/端到端含ESD与门降级/相机客户端与设备状态/日志门面异常隔离与文件日志并发/UI坐标换算与框选状态机/UI构造）+ GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
+description: "YoloDetector 一键全量回归验证：构建主项目、运行 181 个进程内回归用例（配置含EsdConfig与ROI标定写回/YoloConfig与URL兜底/Mat互转/WPF宿主位图转换/后处理/可视化器/YOLO检测器过滤与NMS与双布局解析/姿态检测器/静电接触分析器与叠加渲染/门状态监测/检测管道线程协议与ESD降频与门旁路/帧源/端到端含ESD与门降级/相机客户端与设备状态/日志门面异常隔离与文件日志并发/UI坐标换算与框选状态机/WPF主窗口构造）+ GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
 ---
 
 # 全量回归验证
@@ -18,7 +18,7 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 | --- | --- |
 | Configuration/AppConfig.cs、CameraConfig.cs、YoloConfig.cs、EsdConfig.cs、RoiJsonUpdater.cs | ConfigTests（含损坏回退/模板替换与null兜底/YoloConfig默认值/模型存在性/EsdConfig现场加载与ToOptions夹紧/UpdateRoiJson局部更新保留注释字段/非对象JSON返null/ApplyNormalizedRoi就地夹紧/DrawNoContactBoxes缺省false与透传） |
 | Detection/MatExtensions.cs | MatExtensionsTests（像素级无损往返） |
-| App/SkBitmapExtensions.cs | SkBitmapExtensionTests（Bgra8888 错位回归防线，v2.1 真实花屏 bug；Alpha忽略） |
+| App/SkBitmapWpfExtensions.cs | SkBitmapWpfTests（Bgra8888→Bgra32 错位回归防线平移自 v2.1 真实花屏 bug：像素无损/尺寸不匹配拒绝/非Bgra格式拒绝/null契约/Mat全链一致） |
 | Detection/IDetectionResultProcessor.cs 三个处理器 + DetectionResult.cs | ProcessorTests（行为红线锁定 + 空链/非法参数防御） |
 | Detection/Visualizers.cs、YoloBuiltinVisualizer.cs | VisualizerTests（不污染原帧/null 契约/工厂 + null结果与出界框不崩） |
 | Detection/YoloV26Detector.cs | DetectorTests（真实模型推理契约 + 反射锁定TryAdd过滤与裁剪/ParseOutput双布局与非法形状/ApplyNms去重 + 奇数尺寸 + 连续推理耗时观察） |
@@ -36,9 +36,9 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 | Cameras/AngehuaCameraApiClient.cs、DeviceStatus.cs | AngehuaClientTests（快速失败/有界超时/桩契约/流地址三占位符/使用率计算） |
 | Detection/LogManager.cs | LogManagerTests（三通道独立开关/UI送达与清除/双通道异常隔离/null通道保持语义） |
 | Infrastructure/Logging/Logger.cs | LoggerTests（惰性初始化/并发写入/Close 幂等与静默） |
-| UI/MainForm.cs + Layout、Program.cs | UiSmokeTests（STA 构造冒烟）+ Invoke-SmokeTest.ps1（真进程 GUI 冒烟） |
+| UI/App.xaml(.cs)、UI/MainWindow.xaml(.cs)、UI/Themes/ | UiSmokeTests（STA 构造冒烟：进程内构造 Application 合并主程序集主题字典 + MainWindow 构造/显示/关闭）+ Invoke-SmokeTest.ps1（真进程 GUI 冒烟） |
 
-未覆盖边界（说明原因）：MainForm 的 private 交互方法（按钮事件/日志裁剪）需真实 UI 交互驱动，
+未覆盖边界（说明原因）：MainWindow 的 private 交互方法（按钮事件/日志裁剪）需真实 UI 交互驱动，
 由进程级 GUI 冒烟整体兜底；CameraApiFactory 的 HIK/DAHUA 回退分支依赖静态现场配置无法注入，
 当前仅验证激活品牌路径。
 
@@ -51,7 +51,6 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 │   ├── Run-AllTests.ps1          ★ 总入口：一键全流程
 │   ├── Invoke-Harness.ps1        构建+运行进程内 harness
 │   ├── Invoke-SmokeTest.ps1      GUI 进程级冒烟
-│   ├── Invoke-RoiDragVisualCheck.ps1  ROI 拖拽标定目检探针（STA 反射驱动框选+截图，人工目检用）
 │   ├── EsdLiveProbe.csproj        静电触摸真机全链路诊断探针（手动：需真实 RTSP 相机，两阶段验证判定链路+roi_check.png 目检）
 │   └── EsdLiveProbe.cs            ↑ 探针源码（构建输出落主 bin，运行后清理产物）
 └── harness/
@@ -59,7 +58,7 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
     ├── TestFramework.cs          微型断言框架 T + FakeDetector + TestUtil
     ├── ConfigTests.cs            配置加载/回退/RTSP模板/ESD ROI标定写回（UpdateRoiJson/ApplyNormalizedRoi）
     ├── MatExtensionsTests.cs     Mat↔SKBitmap 像素级无损往返
-    ├── SkBitmapExtensionTests.cs 宿主边界 SKBitmap→Drawing.Bitmap（花屏回归防线）
+    ├── SkBitmapWpfTests.cs       WPF 宿主边界 SKBitmap→WriteableBitmap（花屏回归防线平移，v2.10）
     ├── ProcessorTests.cs         后处理器行为红线（边界裁剪/10x20过滤）+ 结果模型属性
     ├── VisualizerTests.cs        可视化器契约（不污染原帧/null契约）
     ├── DetectorTests.cs          YoloV26Detector 真实模型推理契约
@@ -75,7 +74,7 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
     ├── LogManagerTests.cs        日志门面三通道独立开关
     ├── LoggerTests.cs            文件日志契约（Close 后进程内日志静默，须在 UI 冒烟前）
     ├── RoiSelectionTests.cs      ROI 拖拽标定纯逻辑（Zoom 坐标换算 + 拖拽端到端换算 + 框选状态机，测的是类库 RoiSelectionState/ZoomMapping）
-    └── UiSmokeTests.cs           MainForm 构造/显示/关闭（STA，必须最后跑）
+    └── UiSmokeTests.cs           MainWindow WPF 构造/显示/关闭（STA + Dispatcher 推进 + App 级主题资源，必须最后跑）
 ```
 
 ## 执行
@@ -89,7 +88,7 @@ powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scr
 powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scripts\Invoke-SmokeTest.ps1"
 ```
 
- 预期：harness 输出 `汇总: PASS=180 FAIL=0`；GUI 冒烟 `[SMOKE] 结果: 全部通过`；总退出码 0。
+ 预期：harness 输出 `汇总: PASS=181 FAIL=0`；GUI 冒烟 `[SMOKE] 结果: 全部通过`；总退出码 0。
  耗时参考：全程约 2~3 分钟（其中 RTSP 拒绝连接与不可达地址用例固定消耗约 30 秒，是 FFmpeg/TCP 内部超时的固有行为）。
 
 ## 新增测试用例的固定流程（AI 必须遵守）
@@ -112,7 +111,7 @@ powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scr
   否则抛 OpenCVException(cn == 1)；
 - **读日志文件必须用 FileShare.ReadWrite 共享打开**：Logger 的 StreamWriter 常驻持有
   写句柄（设计如此），File.ReadAllText 独占打开会抛 IOException；
-- **UiSmokeTests 必须最后跑**：MainForm.Close 会触发 Logger.Close()，之后整个进程
+- **UiSmokeTests 必须最后跑**：MainWindow.Close 会触发 Logger.Close()，之后整个进程
   的文件日志静默失效（Logger 防退出期重开句柄的设计）；LoggerTests 自身也会 Close，
   故安排在 UI 冒烟之前、其余用例之后；
 - **ConfigTests 会污染静态配置**：AppConfig 是静态组合根，污染后必须在 finally 里
@@ -131,12 +130,8 @@ powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scr
   一帧（正常防积压语义），须 WaitFor 第 1 帧处理完再提交第 2 帧；
 - **归一化坐标换算断言禁止 float 精确相等**：0.2f/0.3f 是二进制无限小数，
   乘帧宽后带尾差，会出现"打印值相同却断言失败"，用 Math.Abs(diff)<0.01 容差。
-- **STA 目检探针（Invoke-RoiDragVisualCheck.ps1）三个坑**：
 - **反射测私有纯逻辑（v2.9.2 新增套路）**：`TryAdd/ParseOutput/ApplyNms` 是无 IO 的纯函数，反射直测（`GetMethod("TryAdd", NonPublic|Instance)`）比"凑模型输出"稳定得多；合成张量用 `new DenseTensor<float>(data, new[]{1,N,D})` 构造（行主序，`data[i*D+d]` 即候选 i 的第 d 维）；`m.Invoke` 的 object[] 参数类型必须精确匹配（float 与 int 不可混）；harness 工程如需张量类型必须显式引用 `Microsoft.ML.OnnxRuntime`（见 harness csproj 注释——此前缺引用导致 3 个编译错误）；反射目标改名/改签名时 `GetMethod` 返回 null、用例以 NullReferenceException 失败（T.Case 会捕获并记 FAIL，loud failure，可据此定位）。
-  ① write 工具产出的 ps1 是无 BOM UTF-8，含中文注释会被 PowerShell 5.1 按 ANSI 解析炸语法——探针脚本注释一律英文；
-  ② `[Reflection.BindingFlags]"NonPublic|Instance"` 字符串解析失败，必须用 `::NonPublic -bor ::Instance`；
-  ③ CopyFromScreen 截屏幕区域会被其他窗口遮挡，截图前须 `$form.TopMost=$true; $form.Activate()`；
-  探针只触发 Press/Drag 不触发 MouseUp——避免把测试坐标写进现场 esdConfig.json。
+- **STA 目检探针（Invoke-RoiDragVisualCheck.ps1，v2.10 已删除）**：该脚本反射的 MainForm 私有字段在 v2.10 WPF 化后已不存在，且本就与代码脱节。保留的历史踩坑（对 WPF 界面截图仍有参考价值）：① write 工具产出的 ps1 是无 BOM UTF-8，含中文注释会被 PowerShell 5.1 按 ANSI 解析炸语法——探针脚本注释一律英文；② `[Reflection.BindingFlags]"NonPublic|Instance"` 字符串解析失败，必须用 `::NonPublic -bor ::Instance`；③ CopyFromScreen 截屏幕区域会被其他窗口遮挡，截图前须窗口置顶激活（WPF：`window.Topmost=true; window.Activate()` 或直接用 desktop 工具按窗口截图）。WPF 界面目检改走 desktop 工具（desktop_launch + desktop_screenshot 按窗口 id 截图），ROI 拖拽换算契约由 RoiSelectionTests（类库纯逻辑）锁定。
 
 ## 常见问题
 

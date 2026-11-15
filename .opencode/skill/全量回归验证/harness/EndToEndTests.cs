@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Threading;
+using SkiaSharp;
 using YoloDetector.App;
 
 namespace YoloDetector.Tests
@@ -11,7 +11,7 @@ namespace YoloDetector.Tests
     // VideoDetectionController 端到端测试。
     //
     // 用"视频文件路径当 RTSP 地址 + 现场真实模型"跑通完整链路：
-    //   帧源 → 管道(真推理) → 可视化 → previewSink(Bitmap) / detectionSink(快照)
+    //   帧源 → 管道(真推理) → 可视化 → previewSink(SKBitmap) / detectionSink(快照)
     // 这是除 GUI 外最接近现场真实运行的验证。
     // ============================================================
 

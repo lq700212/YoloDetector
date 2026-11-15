@@ -59,17 +59,12 @@
       <HintPath>..\..\..\..\bin\Debug\net472\Microsoft.ML.OnnxRuntime.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <!-- MainForm 元数据里引用了 SunnyUI 控件类型，编译期需要可解析 -->
-    <Reference Include="SunnyUI">
-      <HintPath>..\..\..\..\bin\Debug\net472\SunnyUI.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="SunnyUI.Common">
-      <HintPath>..\..\..\..\bin\Debug\net472\SunnyUI.Common.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Drawing" />
+    <!-- MainWindow(WPF) 元数据引用 WPF 程序集，编译期需要可解析（net472 GAC 引用）；
+         SunnyUI/System.Windows.Forms/System.Drawing 随 WinForms→WPF 迁移（v2.10）移除 -->
+    <Reference Include="PresentationFramework" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
     <!--
       显式对齐主 bin 中实际部署的高版本传递依赖（OnnxRuntime/SunnyUI 元数据里
       声明的是旧版本），否则 MSBuild RAR 报 MSB3276 版本冲突警告。

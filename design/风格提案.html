@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YOLO 检测系统 · WPF 界面风格提案</title>
+<style>
+/* ============================================================
+   提案页面自身骨架（非方案样式）
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #0c0d12; color: #dfe3ea;
+  padding: 32px 24px 80px;
+}
+.page-head { max-width: 1280px; margin: 0 auto 8px; }
+.page-head h1 { font-size: 26px; font-weight: 700; letter-spacing: .5px; }
+.page-head h1 em { font-style: normal; color: #52E19F; }
+.page-head p.sub { color: #8a94a6; margin-top: 8px; font-size: 13.5px; line-height: 1.8; }
+.page-nav {
+  max-width: 1280px; margin: 20px auto 0; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+}
+.page-nav a {
+  color: #dfe3ea; text-decoration: none; font-size: 13px; padding: 8px 16px;
+  border: 1px solid #2a2f3a; border-radius: 999px; background: #15171e; transition: all .25s;
+}
+.page-nav a:hover { border-color: #52E19F; color: #52E19F; }
+.global-toggle {
+  margin-left: auto; display: flex; gap: 8px;
+}
+.global-toggle button {
+  cursor: pointer; font-size: 13px; padding: 8px 18px; border-radius: 999px; border: 1px solid #2a2f3a;
+  background: #15171e; color: #dfe3ea; transition: all .25s;
+}
+.global-toggle button:hover { border-color: #2196F3; color: #2196F3; }
+
+/* 方案区块 */
+.scheme { max-width: 1280px; margin: 56px auto 0; }
+.scheme-info { margin-bottom: 18px; }
+.scheme-info .no { font-size: 12px; letter-spacing: 3px; color: #8a94a6; }
+.scheme-info h2 { font-size: 22px; margin-top: 6px; }
+.scheme-info p.desc { color: #9aa3b2; font-size: 13.5px; margin-top: 8px; line-height: 1.8; max-width: 900px; }
+.palette { display: flex; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
+.chip { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9aa3b2; }
+.chip i { width: 22px; height: 22px; border-radius: 6px; display: inline-block; border: 1px solid rgba(255,255,255,.15); }
+.chip code { color: #cfd6e0; }
+
+/* mockup 窗口通用 */
+.mock {
+  width: 1280px; border-radius: 14px; overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.06);
+  transition: background .35s;
+  position: relative;
+}
+
+/* ============================================================
+   公共 mockup 组件（颜色全部走方案变量）
+   ============================================================ */
+.mock .m-input {
+  height: 34px; border-radius: 9px; border: 1px solid var(--input-border);
+  background: var(--input-bg); color: var(--text);
+  padding: 0 12px; font-size: 12.5px; display: flex; align-items: center;
+  outline: none; transition: border-color .3s, box-shadow .3s; min-width: 0;
+}
+.mock .m-input .ph { color: var(--text-ph); }
+.mock .m-input .val { color: var(--text); }
+.mock .m-label { font-size: 11px; color: var(--text-sub); letter-spacing: 1px; margin-bottom: 6px; display: block;}
+.mock .m-card {
+  background: var(--card); border: 1px solid var(--card-border); border-radius: var(--card-radius, 12px);
+  transition: background .35s, border-color .35s;
+}
+.mock .m-card-title { font-size: 13px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px;}
+.mock .m-card-title::before { content: ""; width: 4px; height: 14px; border-radius: 2px; background: var(--primary); }
+
+/* 按钮 */
+.m-btn {
+  height: 34px; border-radius: var(--btn-radius, 9px); border: none; cursor: pointer;
+  font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  transition: all .3s ease; padding: 0 14px; font-family: inherit; letter-spacing: .5px;
+}
+.m-btn.primary { background: var(--primary); color: var(--on-primary); }
+.m-btn.primary:hover { background: var(--primary-hover); box-shadow: 0 4px 14px var(--primary-glow); }
+.m-btn.success { background: var(--success); color: var(--on-success); }
+.m-btn.success:hover { box-shadow: 0 4px 14px var(--success-glow); filter: brightness(1.08); }
+.m-btn.danger  { background: var(--danger); color: var(--on-danger); }
+.m-btn.danger:hover { box-shadow: 0 4px 14px var(--danger-glow); filter: brightness(1.08); }
+.m-btn.ghost {
+  background: var(--ghost-bg); color: var(--text); border: 1px solid var(--card-border);
+}
+.m-btn.ghost:hover { border-color: var(--primary); color: var(--primary); }
+.m-btn.hero {
+  background: var(--hero-bg, var(--primary)); color: #fff; border-radius: 999px;
+}
+.m-btn.hero:hover { box-shadow: 0 6px 20px var(--primary-glow); filter: brightness(1.06); }
+.m-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* 状态徽标 */
+.m-badge {
+  display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600;
+  padding: 5px 13px; border-radius: 999px;
+  background: var(--badge-ok-bg); color: var(--badge-ok-text); border: 1px solid var(--badge-ok-border);
+}
+.m-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px var(--success); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+
+/* 主题切换按钮（mockup 窗口内） */
+.m-theme {
+  cursor: pointer; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--card-border);
+  background: var(--ghost-bg); color: var(--text); font-size: 14px;
+  display: inline-flex; align-items: center; justify-content: center; transition: all .3s;
+}
+
+/* 通道 stepper */
+.m-stepper {
+  display: inline-flex; align-items: center; height: 34px; border-radius: 999px;
+  border: 1px solid var(--input-border); background: var(--input-bg); overflow: hidden;
+}
+.m-stepper button {
+  width: 30px; height: 100%; border: none; background: transparent; color: var(--text-sub);
+  font-size: 15px; cursor: pointer; transition: all .25s;
+}
+.m-stepper button:hover { color: var(--primary); background: var(--ghost-bg); }
+.m-stepper .num { min-width: 34px; text-align: center; font-size: 13px; font-weight: 700; color: var(--text); }
+
+/* 视频区模拟画面 */
+.m-video {
+  position: relative; background: #0a0b0e; border-radius: var(--video-radius, 12px); overflow: hidden;
+  background-image:
+    radial-gradient(ellipse 60% 80% at 30% 60%, rgba(46,58,74,.55), transparent),
+    radial-gradient(ellipse 50% 70% at 75% 40%, rgba(30,40,58,.5), transparent),
+    linear-gradient(180deg, #101318 0%, #07080b 100%);
+}
+.m-video .scene { position: absolute; inset: 0; }
+.m-video .hint {
+  position: absolute; left: 50%; top: 46%; transform: translate(-50%,-50%);
+  color: #3d4552; font-size: 13px; letter-spacing: 2px; text-align: center; line-height: 2;
+}
+.m-video .roi-badge, .m-video .ch-badge, .m-video .fps-badge {
+  position: absolute; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 7px;
+  background: rgba(10,12,16,.72); color: #cfd6e0; backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.1); letter-spacing: .5px;
+}
+.m-video .roi-badge b, .m-video .ch-badge b { color: #FFD966; }
+/* YOLO 检测框 */
+.det-box { position: absolute; border: 2px solid #52E19F; border-radius: 3px; }
+.det-box .tag {
+  position: absolute; top: -20px; left: -2px; font-size: 10px; font-weight: 700; color: #0a0b0e;
+  background: #52E19F; padding: 2px 7px; border-radius: 3px 3px 3px 0; white-space: nowrap;
+}
+.det-box.esd { border-color: #FFD966; border-style: dashed; border-radius: 4px; }
+.det-box.esd .tag { background: #FFD966; color: #1d1d1b; top: auto; bottom: -20px; }
+/* 人形剪影 */
+.person-svg { position: absolute; opacity: .9; }
+
+/* 悬浮工具条（视频内） */
+.m-float-bar {
+  position: absolute; right: 14px; bottom: 14px; display: flex; gap: 8px; align-items: center;
+  padding: 7px; border-radius: 11px; background: rgba(10,12,16,.66); backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,.1);
+}
+/* 浮层永远压在深色视频画面上，内部按钮颜色固定为深色画面配色，不随页面主题翻转 */
+.m-float-bar .m-btn.ghost {
+  background: rgba(255,255,255,.08); color: #E8ECF1; border-color: rgba(255,255,255,.16);
+}
+
+/* 日志区 */
+.m-log {
+  background: var(--log-bg); border: 1px solid var(--card-border); border-radius: var(--card-radius, 12px);
+  padding: 12px 16px; font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; line-height: 1.9;
+  color: var(--log-text); overflow: hidden; transition: background .35s;
+}
+.m-log .t { color: var(--log-time); }
+.m-log .ok { color: var(--success); }
+.m-log .warn { color: var(--warn); }
+.m-log .info { color: var(--info); }
+.m-log-title { font-size: 12px; font-weight: 600; color: var(--text-sub); letter-spacing: 1px; margin-bottom: 8px; display:flex; align-items:center; gap:8px;}
+.m-log-title::before { content: ""; width: 4px; height: 12px; border-radius: 2px; background: var(--primary); }
+
+/* 设备状态 */
+.dev-status { font-family: Consolas, monospace; font-size: 12px; color: var(--text-sub); line-height: 2; }
+.dev-status b { color: var(--text); font-weight: 600; }
+.mini-stat { text-align: center; padding: 10px 6px; }
+.mini-stat .v { font-size: 16px; font-weight: 700; color: var(--text); font-family: Bahnschrift, Consolas, sans-serif; }
+.mini-stat .k { font-size: 10.5px; color: var(--text-sub); margin-top: 4px; letter-spacing: 1px; }
+.mini-stat .v em { font-style: normal; font-size: 11px; color: var(--text-sub); }
+
+/* ============================================================
+   方案一 · 深色工业监控 Aurora
+   ============================================================ */
+#scheme1 .mock { background: var(--bg); }
+#scheme1[data-mode="dark"] {
+  --bg:#17191E; --panel:#1B1E24; --card:#1E2229; --card-border:#2A303B; --card-radius:12px;
+  --text:#E8ECF1; --text-sub:#8A94A6; --text-ph:#4A5568;
+  --primary:#2196F3; --primary-hover:#42A5F5; --primary-glow:rgba(33,150,243,.35); --on-primary:#fff;
+  --success:#52E19F; --success-glow:rgba(82,225,159,.3); --on-success:#0d2018;
+  --danger:#F0655A; --danger-glow:rgba(240,101,90,.3); --on-danger:#fff;
+  --warn:#FF9C31; --info:#64B5F6;
+  --input-bg:#14161B; --input-border:#2A303B;
+  --badge-ok-bg:rgba(82,225,159,.12); --badge-ok-text:#52E19F; --badge-ok-border:rgba(82,225,159,.3);
+  --ghost-bg:rgba(255,255,255,.05);
+  --log-bg:#13151A; --log-text:#9AA3B2; --log-time:#5A6472;
+  --video-radius:12px;
+}
+#scheme1[data-mode="light"] {
+  --bg:#F2F5F9; --panel:#EDF1F6; --card:#FFFFFF; --card-border:#E1E8F0; --card-radius:12px;
+  --text:#1A2430; --text-sub:#5E6B7C; --text-ph:#A5B1BF;
+  --primary:#1976D2; --primary-hover:#1E88E5; --primary-glow:rgba(25,118,210,.25); --on-primary:#fff;
+  --success:#2FA97C; --success-glow:rgba(47,169,124,.25); --on-success:#fff;
+  --danger:#E05A50; --danger-glow:rgba(224,90,80,.25); --on-danger:#fff;
+  --warn:#E8890C; --info:#1E88E5;
+  --input-bg:#F5F8FB; --input-border:#D5DEE8;
+  --badge-ok-bg:rgba(47,169,124,.1); --badge-ok-text:#237A5A; --badge-ok-border:rgba(47,169,124,.35);
+  --ghost-bg:rgba(26,36,48,.05);
+  --log-bg:#F7FAFC; --log-text:#5E6B7C; --log-time:#9AA8B6;
+  --video-radius:12px;
+}
+#scheme1 .s1-top {
+  height: 56px; display: flex; align-items: center; padding: 0 20px; gap: 14px;
+  background: var(--panel); border-bottom: 1px solid var(--card-border);
+}
+#scheme1 .s1-logo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: 1px;}
+#scheme1 .s1-logo i { width: 10px; height: 10px; border-radius: 3px; background: linear-gradient(135deg, #2196F3, #52E19F); }
+#scheme1 .s1-top .m-badge { margin-left: auto; }
+#scheme1 .s1-body { display: flex; height: 704px; }
+#scheme1 .s1-side {
+  width: 292px; background: var(--panel); border-right: 1px solid var(--card-border);
+  padding: 16px 14px; display: flex; flex-direction: column; gap: 14px;
+}
+#scheme1 .s1-side .m-card { padding: 14px; }
+#scheme1 .s1-side .field { margin-top: 10px; }
+#scheme1 .s1-side .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+#scheme1 .s1-side .btn-grid .m-btn { height: 36px; font-size: 12px; }
+#scheme1 .s1-side .calib-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+#scheme1 .s1-side .calib-row .m-btn { height: 32px; font-size: 11.5px; }
+#scheme1 .s1-main { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+#scheme1 .s1-video-wrap { flex: 1; min-height: 0; }
+#scheme1 .s1-video { height: 100%; }
+#scheme1 .s1-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+#scheme1 .s1-stats .m-card { padding: 0; }
+#scheme1 .s1-log { height: 168px; display: flex; flex-direction: column; }
+#scheme1 .s1-log .m-log { flex: 1; }
+
+/* ============================================================
+   方案二 · 渐变霓虹 Neon Pulse
+   ============================================================ */
+#scheme2 .mock { background: var(--bg); }
+#scheme2[data-mode="dark"] {
+  --bg:#0F1016; --card:#171923; --card-border:#262A3A; --card-radius:14px;
+  --text:#ECF0F8; --text-sub:#7C869C; --text-ph:#454E63;
+  --primary:#5B42F3; --primary-hover:#6D57FF; --primary-glow:rgba(91,66,243,.45); --on-primary:#fff;
+  --hero-bg:linear-gradient(90deg, #7D2AE8 0%, #5B42F3 50%, #00DDEB 130%);
+  --success:#52E19F; --success-glow:rgba(82,225,159,.35); --on-success:#08281A;
+  --danger:#FD4A6E; --danger-glow:rgba(253,74,110,.35); --on-danger:#fff;
+  --warn:#FF9C31; --info:#00DDEB;
+  --input-bg:#12141C; --input-border:#2B3040;
+  --badge-ok-bg:rgba(82,225,159,.1); --badge-ok-text:#52E19F; --badge-ok-border:rgba(82,225,159,.35);
+  --ghost-bg:rgba(255,255,255,.05);
+  --log-bg:#101219; --log-text:#8A94A6; --log-time:#4E576B;
+  --video-radius:14px; --neon-border:rgba(123,74,232,.5);
+}
+#scheme2[data-mode="light"] {
+  --bg:#EEF0F8; --card:#FFFFFF; --card-border:#DFE3F0; --card-radius:14px;
+  --text:#191C2A; --text-sub:#6A7288; --text-ph:#A8AFC4;
+  --primary:#5B42F3; --primary-hover:#4E35DB; --primary-glow:rgba(91,66,243,.25); --on-primary:#fff;
+  --hero-bg:linear-gradient(90deg, #7D2AE8 0%, #5B42F3 50%, #00A8BD 130%);
+  --success:#1FA97A; --success-glow:rgba(31,169,122,.25); --on-success:#fff;
+  --danger:#E43A60; --danger-glow:rgba(228,58,96,.25); --on-danger:#fff;
+  --warn:#E8890C; --info:#0092A8;
+  --input-bg:#F6F7FC; --input-border:#D6DBEC;
+  --badge-ok-bg:rgba(31,169,122,.1); --badge-ok-text:#1B7A58; --badge-ok-border:rgba(31,169,122,.35);
+  --ghost-bg:rgba(25,28,42,.05);
+  --log-bg:#F6F7FC; --log-text:#6A7288; --log-time:#9BA3B8;
+  --video-radius:14px; --neon-border:rgba(123,74,232,.35);
+}
+#scheme2 .s2-top {
+  height: 54px; display: flex; align-items: center; padding: 0 22px; gap: 14px;
+  border-bottom: 1px solid var(--card-border);
+}
+#scheme2 .s2-logo { font-size: 16px; font-weight: 800; letter-spacing: 1px;
+  background: linear-gradient(90deg, #7D2AE8, #5B42F3 55%, #00DDEB);
+  -webkit-background-clip: text; background-clip: text; color: transparent; }
+#scheme2 .s2-logo span { color: var(--text); background: none; -webkit-text-fill-color: currentColor; font-weight: 400; font-size: 12px; letter-spacing: 2px; margin-left: 8px;}
+#scheme2 .s2-top .m-badge { margin-left: auto; box-shadow: 0 0 14px var(--badge-ok-bg); }
+#scheme2 .s2-toolbar {
+  height: 58px; display: flex; align-items: center; gap: 10px; padding: 0 22px;
+  border-bottom: 1px solid var(--card-border); background: var(--card);
+}
+#scheme2 .s2-toolbar .m-input { flex: 1; }
+#scheme2 .s2-body { display: flex; gap: 14px; padding: 14px 22px; height: 560px; }
+#scheme2 .s2-video-wrap { flex: 1; position: relative; }
+#scheme2 .s2-video {
+  height: 100%; border: 1px solid var(--neon-border);
+  box-shadow: 0 0 22px rgba(91,66,243,.18), inset 0 0 40px rgba(0,0,0,.5);
+}
+#scheme2 .s2-side { width: 176px; display: flex; flex-direction: column; gap: 9px; }
+#scheme2 .s2-side .m-btn { width: 100%; height: 38px; border-radius: 11px; font-size: 12.5px; }
+#scheme2 .s2-side .side-cap { font-size: 10.5px; color: var(--text-sub); letter-spacing: 2px; margin: 4px 0 -2px; }
+#scheme2 .s2-side .dev-card { margin-top: auto; padding: 10px 12px; }
+#scheme2 .s2-side .dev-card .dev-status { line-height: 1.9; font-size: 11px; }
+#scheme2 .s2-log { margin: 0 22px 18px; height: 128px; }
+#scheme2 .s2-float { left: 14px; right: auto; }
+
+/* ============================================================
+   方案三 · 玻璃拟态 Glass Aurora
+   ============================================================ */
+#scheme3 .mock { background: var(--bg); position: relative; }
+#scheme3 .blob { position: absolute; border-radius: 50%; filter: blur(90px); pointer-events: none; }
+#scheme3 .blob.b1 { width: 480px; height: 480px; left: -120px; top: -140px; background: var(--blob1); opacity: .55; }
+#scheme3 .blob.b2 { width: 520px; height: 520px; right: -140px; bottom: -180px; background: var(--blob2); opacity: .5; }
+#scheme3[data-mode="dark"] {
+  --bg:linear-gradient(140deg, #10121D 0%, #171A2E 55%, #0E2233 100%);
+  --blob1:#5B42F3; --blob2:#00A8BD;
+  --glass:rgba(255,255,255,.07); --glass-strong:rgba(255,255,255,.1);
+  --card:var(--glass); --card-border:rgba(255,255,255,.16); --card-radius:16px;
+  --text:#EEF1FA; --text-sub:#9BA6C0; --text-ph:#5A6480;
+  --primary:#6C7BFF; --primary-hover:#7D8BFF; --primary-glow:rgba(108,123,255,.4); --on-primary:#fff;
+  --success:#4EE6A8; --success-glow:rgba(78,230,168,.35); --on-success:#08301F;
+  --danger:#FF6B81; --danger-glow:rgba(255,107,129,.3); --on-danger:#fff;
+  --warn:#FFB85C; --info:#7DD3FC;
+  --input-bg:rgba(0,0,0,.25); --input-border:rgba(255,255,255,.14);
+  --badge-ok-bg:rgba(78,230,168,.12); --badge-ok-text:#4EE6A8; --badge-ok-border:rgba(78,230,168,.35);
+  --ghost-bg:rgba(255,255,255,.08);
+  --log-bg:rgba(0,0,0,.28); --log-text:#A9B2CB; --log-time:#5E6880;
+  --video-radius:16px;
+}
+#scheme3[data-mode="light"] {
+  --bg:linear-gradient(140deg, #EAF0FF 0%, #F6EFFF 50%, #E6F7F3 100%);
+  --blob1:#B9A8FF; --blob2:#7DE3D3;
+  --glass:rgba(255,255,255,.55); --glass-strong:rgba(255,255,255,.7);
+  --card:var(--glass); --card-border:rgba(255,255,255,.85); --card-radius:16px;
+  --text:#1E2438; --text-sub:#5F6A85; --text-ph:#A5AEC5;
+  --primary:#5468F5; --primary-hover:#4054E8; --primary-glow:rgba(84,104,245,.3); --on-primary:#fff;
+  --success:#23A97C; --success-glow:rgba(35,169,124,.25); --on-success:#fff;
+  --danger:#E85C71; --danger-glow:rgba(232,92,113,.25); --on-danger:#fff;
+  --warn:#E8890C; --info:#3B82C4;
+  --input-bg:rgba(255,255,255,.7); --input-border:rgba(30,36,56,.12);
+  --badge-ok-bg:rgba(35,169,124,.12); --badge-ok-text:#1B7A58; --badge-ok-border:rgba(35,169,124,.3);
+  --ghost-bg:rgba(30,36,56,.06);
+  --log-bg:rgba(255,255,255,.6); --log-text:#5F6A85; --log-time:#9AA3B8;
+  --video-radius:16px;
+}
+#scheme3 .s3-inner { position: relative; z-index: 1; }
+#scheme3 .s3-top {
+  height: 62px; display: flex; align-items: center; gap: 12px; padding: 0 22px;
+  background: var(--glass); backdrop-filter: blur(24px); border-bottom: 1px solid var(--card-border);
+}
+#scheme3 .s3-logo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; color: var(--text); }
+#scheme3 .s3-logo i { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg, #6C7BFF, #4EE6A8); }
+#scheme3 .s3-top .m-input { width: 190px; backdrop-filter: blur(10px); }
+#scheme3 .s3-top .m-badge { margin-left: auto; backdrop-filter: blur(8px); }
+#scheme3 .s3-body { display: flex; gap: 16px; padding: 18px 22px; height: 698px; }
+#scheme3 .s3-side { width: 274px; display: flex; flex-direction: column; gap: 14px; }
+#scheme3 .s3-side .m-card { padding: 16px; background: var(--glass); backdrop-filter: blur(24px); }
+#scheme3 .s3-side .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+#scheme3 .s3-side .btn-grid .m-btn { height: 36px; font-size: 12px; border-radius: 10px; }
+#scheme3 .s3-side .dev-box { border-top: 1px dashed var(--card-border); margin-top: 14px; padding-top: 10px; }
+#scheme3 .s3-main { flex: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+#scheme3 .s3-video-wrap { flex: 1; min-height: 0; }
+#scheme3 .s3-video { height: 100%; border: 1px solid var(--card-border); box-shadow: 0 18px 50px rgba(0,0,0,.35); }
+#scheme3 .s3-log { height: 158px; display: flex; flex-direction: column; backdrop-filter: blur(24px); }
+#scheme3 .s3-log .m-log { flex: 1; background: transparent; border: none; }
+
+/* ============================================================
+   方案四 · 浅色极简 Material Clean
+   ============================================================ */
+#scheme4 .mock { background: var(--bg); }
+#scheme4[data-mode="dark"] {
+  --bg:#121419; --card:#1B1E24; --card-border:#282D36; --card-radius:14px;
+  --text:#E8ECF1; --text-sub:#8A94A6; --text-ph:#4A5568;
+  --primary:#2196F3; --primary-hover:#42A5F5; --primary-glow:rgba(33,150,243,.3); --on-primary:#fff;
+  --success:#52C08E; --success-glow:rgba(82,192,142,.25); --on-success:#0d2018;
+  --danger:#ED7168; --danger-glow:rgba(237,113,104,.25); --on-danger:#fff;
+  --warn:#FF9C31; --info:#64B5F6;
+  --input-bg:#14161B; --input-border:#2A303B;
+  --badge-ok-bg:rgba(82,192,142,.12); --badge-ok-text:#52C08E; --badge-ok-border:rgba(82,192,142,.3);
+  --ghost-bg:rgba(255,255,255,.05);
+  --log-bg:#14161B; --log-text:#9AA3B2; --log-time:#5A6472;
+  --video-radius:14px;
+}
+#scheme4[data-mode="light"] {
+  --bg:#F7F9FB; --card:#FFFFFF; --card-border:#E8EDF2; --card-radius:14px;
+  --text:#1E2833; --text-sub:#64748B; --text-ph:#AAB4C0;
+  --primary:#1976D2; --primary-hover:#1E88E5; --primary-glow:rgba(25,118,210,.22); --on-primary:#fff;
+  --success:#2E9E72; --success-glow:rgba(46,158,114,.22); --on-success:#fff;
+  --danger:#E05A50; --danger-glow:rgba(224,90,80,.22); --on-danger:#fff;
+  --warn:#E8890C; --info:#1E88E5;
+  --input-bg:#F4F7FA; --input-border:#DCE3EB;
+  --badge-ok-bg:rgba(46,158,114,.1); --badge-ok-text:#237A5A; --badge-ok-border:rgba(46,158,114,.3);
+  --ghost-bg:rgba(30,40,51,.05);
+  --log-bg:#FBFCFE; --log-text:#64748B; --log-time:#9AA8B6;
+  --video-radius:14px;
+}
+#scheme4 .mock { box-shadow: 0 24px 64px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.06); }
+#scheme4 .s4-appbar {
+  height: 58px; display: flex; align-items: center; padding: 0 22px; gap: 14px;
+  background: var(--card); border-bottom: 1px solid var(--card-border);
+}
+#scheme4 .s4-logo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; color: var(--text); }
+#scheme4 .s4-logo i { width: 26px; height: 26px; border-radius: 8px; background: var(--primary); display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 13px; font-weight: 800; }
+#scheme4 .s4-appbar .m-badge { margin-left: auto; }
+#scheme4 .s4-body { display: flex; gap: 14px; padding: 16px 22px 0; height: 560px; }
+#scheme4 .s4-col-l { width: 256px; display: flex; flex-direction: column; gap: 12px; }
+#scheme4 .s4-col-l .m-card { padding: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.05); }
+#scheme4 .s4-col-l .field { margin-top: 10px; }
+#scheme4 .s4-center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#scheme4 .s4-video { flex: 1; box-shadow: 0 10px 34px rgba(0,0,0,.16); }
+#scheme4 .s4-col-r { width: 236px; display: flex; flex-direction: column; gap: 12px; }
+#scheme4 .s4-col-r .m-card { padding: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.05); }
+#scheme4 .s4-col-r .btn-col { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+#scheme4 .s4-col-r .btn-col .m-btn { height: 34px; font-size: 12px; }
+#scheme4 .s4-logwrap { margin: 14px 22px 18px; height: 140px; display: flex; flex-direction: column; }
+#scheme4 .s4-logwrap .m-log { flex: 1; }
+
+/* 视频浮层通用 */
+.m-video .v-center-hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>YOLO 检测系统 · <em>WPF 界面风格提案</em></h1>
+  <p class="sub">
+    以下 4 款方案均按 galaxy（Uiverse.io）组件风格重新设计布局，每款内置<b>深色 / 浅色双模式</b>（mockup 右上角圆钮可独立切换，页面顶部可全局切换）。<br>
+    全部功能元素已完整保留：相机连接、流地址、通道调节、预览/拉流/推流、ROI 标定切换、门基准重设、设备状态、视频预览、运行日志。<br>
+    选定方案后，我将把该款风格机械翻译为 WPF 资源字典（Style/ControlTemplate），布局按所选方案实现。
+  </p>
+</header>
+
+<nav class="page-nav">
+  <a href="#scheme1">方案一 · 深色工业监控</a>
+  <a href="#scheme2">方案二 · 渐变霓虹</a>
+  <a href="#scheme3">方案三 · 玻璃拟态</a>
+  <a href="#scheme4">方案四 · 极简 Material</a>
+  <div class="global-toggle">
+    <button onclick="setAll('dark')">◐ 全部切深色</button>
+    <button onclick="setAll('light')">◐ 全部切浅色</button>
+  </div>
+</nav>
+
+<!-- ============================================================
+     方案一 · 深色工业监控（左控制栏 + 视频浮标 + 状态迷你卡）
+     ============================================================ -->
+<section class="scheme" id="scheme1" data-mode="dark">
+  <div class="scheme-info">
+    <div class="no">SCHEME 01</div>
+    <h2>深色工业监控 · Aurora 控制台</h2>
+    <p class="desc">
+      galaxy 高频统计组合：深灰蓝底 + 蓝 #2196F3 主色 + 橙 #FF9C31 警示 + 绿 #52E19F 成功，12px 圆角卡片 + 软阴影 + 0.3s 悬停过渡。
+      布局：左侧功能卡片栏（连接/视频流/操作按钮），右侧大视频区（浮层徽标 + ROI 标定悬浮工具条），设备状态做成横排迷你数据卡，日志收在底部。监控类软件主流形态，黑色视频区与背景融为一体。
+    </p>
+    <div class="palette">
+      <span class="chip"><i style="background:#17191E"></i><code>#17191E 底</code></span>
+      <span class="chip"><i style="background:#1E2229"></i><code>#1E2229 卡片</code></span>
+      <span class="chip"><i style="background:#2196F3"></i><code>#2196F3 主色</code></span>
+      <span class="chip"><i style="background:#52E19F"></i><code>#52E19F 成功</code></span>
+      <span class="chip"><i style="background:#FF9C31"></i><code>#FF9C31 警示</code></span>
+    </div>
+  </div>
+
+  <div class="mock">
+    <!-- 顶栏 -->
+    <div class="s1-top">
+      <div class="s1-logo"><i></i>YOLO 检测台</div>
+      <span style="font-size:11px;color:var(--text-sub);letter-spacing:1px;">REAL-TIME PERSON DETECTION</span>
+      <div class="m-badge"><span class="dot"></span>已连接 · 192.168.0.15</div>
+      <button class="m-theme" onclick="toggleScheme('scheme1')">◐</button>
+    </div>
+    <div class="s1-body">
+      <!-- 左栏 -->
+      <div class="s1-side">
+        <div class="m-card">
+          <div class="m-card-title">相机连接</div>
+          <div class="field">
+            <span class="m-label">相机 IP</span>
+            <div class="m-input"><span class="val">192.168.0.15</span></div>
+          </div>
+          <div class="field">
+            <div class="m-btn primary" style="width:100%;height:36px;">断开连接</div>
+          </div>
+        </div>
+        <div class="m-card">
+          <div class="m-card-title">视频流配置</div>
+          <div class="field">
+            <span class="m-label">流地址（RTSP / RTMP）</span>
+            <div class="m-input"><span class="val">rtsp://192.168.0.15:554/stream0</span></div>
+          </div>
+          <div class="field" style="display:flex;align-items:center;justify-content:space-between;">
+            <span class="m-label" style="margin:0;">通道</span>
+            <div class="m-stepper"><button>−</button><span class="num">0</span><button>+</button></div>
+          </div>
+        </div>
+        <div class="m-card">
+          <div class="m-card-title">预览与流操作</div>
+          <div class="btn-grid">
+            <div class="m-btn success">▶ 开始预览</div>
+            <div class="m-btn danger">■ 停止预览</div>
+            <div class="m-btn ghost">⇊ 开启拉流</div>
+            <div class="m-btn ghost">⇈ 开启推流</div>
+          </div>
+          <div class="calib-row">
+            <div class="m-btn ghost">标定: 静电杆</div>
+            <div class="m-btn ghost">重设门基准</div>
+          </div>
+        </div>
+      </div>
+      <!-- 右侧 -->
+      <div class="s1-main">
+        <div class="s1-video-wrap">
+          <div class="m-video s1-video">
+            <div class="fps-badge" style="left:14px;top:14px;">rtsp://192.168.0.15:554/stream0</div>
+            <div class="ch-badge" style="right:14px;top:14px;">通道 <b>0</b> · 25 FPS</div>
+            <div class="hint">视频预览区域<br><span style="font-size:11px;letter-spacing:1px;">拖拽鼠标可框选标定区域</span></div>
+            <!-- 模拟检测画面 -->
+            <div class="scene">
+              <svg class="person-svg" width="90" height="200" style="left:30%;top:32%;" viewBox="0 0 90 200">
+                <circle cx="45" cy="22" r="14" fill="#2A3542"/>
+                <path d="M25 48 Q45 38 65 48 L70 110 Q45 120 20 110 Z" fill="#2A3542"/>
+                <rect x="27" y="112" width="14" height="70" rx="6" fill="#232C38"/>
+                <rect x="49" y="112" width="14" height="70" rx="6" fill="#232C38"/>
+              </svg>
+              <div class="det-box" style="left:28%;top:26%;width:110px;height:220px;"><span class="tag">person 0.87</span></div>
+              <svg class="person-svg" width="70" height="150" style="left:64%;top:44%;" viewBox="0 0 90 200">
+                <circle cx="45" cy="22" r="14" fill="#262F3C"/>
+                <path d="M25 48 Q45 38 65 48 L70 110 Q45 120 20 110 Z" fill="#262F3C"/>
+                <rect x="27" y="112" width="14" height="70" rx="6" fill="#1F2731"/>
+                <rect x="49" y="112" width="14" height="70" rx="6" fill="#1F2731"/>
+              </svg>
+              <div class="det-box" style="left:62%;top:40%;width:86px;height:164px;"><span class="tag">person 0.72</span></div>
+              <div class="det-box esd" style="left:47%;top:55%;width:150px;height:90px;"><span class="tag">静电杆 ROI</span></div>
+            </div>
+            <div class="m-float-bar">
+              <div class="m-btn ghost" style="height:30px;font-size:11.5px;">标定: 静电杆</div>
+              <div class="m-btn success" style="height:30px;font-size:11.5px;">重设门基准</div>
+            </div>
+          </div>
+        </div>
+        <!-- 设备状态迷你卡 -->
+        <div class="s1-stats">
+          <div class="m-card mini-stat"><div class="v">ANGEHUA</div><div class="k">相机品牌</div></div>
+          <div class="m-card mini-stat"><div class="v">23<em>%</em></div><div class="k">CPU</div></div>
+          <div class="m-card mini-stat"><div class="v">41<em>%</em></div><div class="k">内存</div></div>
+          <div class="m-card mini-stat"><div class="v">28.6<em>TB / 32TB</em></div><div class="k">磁盘 · 录像 128</div></div>
+        </div>
+        <!-- 日志 -->
+        <div class="s1-log m-card" style="padding:12px 14px;">
+          <div class="m-log-title">运行日志</div>
+          <div class="m-log" style="border:none;background:transparent;padding:0;flex:1;">
+            <div><span class="t">[2026-11-15 09:32:11]</span> 程序已启动，请输入相机 IP 后点击「连接相机」</div>
+            <div><span class="t">[2026-11-15 09:32:18]</span> <span class="ok">✓ 相机连接成功：192.168.0.15 (ANGEHUA)</span></div>
+            <div><span class="t">[2026-11-15 09:32:25]</span> <span class="info">YOLO 检测已启动：yolo26n.onnx · 置信度 0.50 · NMS 0.45</span></div>
+            <div><span class="t">[2026-11-15 09:33:02]</span> <span class="warn">⚡ 人员#3 正在触摸静电杆（持续 2.1 秒）</span></div>
+            <div><span class="t">[2026-11-15 09:33:07]</span> <span class="ok">✓ 人员#3 结束触摸（本次持续 5.3 秒）</span></div>
+            <div><span class="t">[2026-11-15 09:33:40]</span> <span class="warn">⚠ 操作间门被打开</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     方案二 · 渐变霓虹（顶部工具条 + 视频霓虹描边 + 右竖列按钮）
+     ============================================================ -->
+<section class="scheme" id="scheme2" data-mode="dark">
+  <div class="scheme-info">
+    <div class="no">SCHEME 02</div>
+    <h2>渐变霓虹 · Neon Pulse</h2>
+    <p class="desc">
+      galaxy 最主流的渐变流派：紫→蓝→青渐变主按钮（#7D2AE8→#5B42F3→#00DDEB）+ 深黑底 + 霓虹描边与光晕。
+      布局：连接配置全部上收到顶部工具条（IP / 流地址 / 通道 / 连接按钮一行完成），视频区占据主体并带霓虹发光描边，右侧竖排快捷操作列，底部横向日志条。操作动线最短，视觉冲击强。
+    </p>
+    <div class="palette">
+      <span class="chip"><i style="background:#0F1016"></i><code>#0F1016 底</code></span>
+      <span class="chip"><i style="background:linear-gradient(90deg,#7D2AE8,#5B42F3,#00DDEB)"></i><code>渐变主按钮</code></span>
+      <span class="chip"><i style="background:#52E19F"></i><code>#52E19F 成功</code></span>
+      <span class="chip"><i style="background:#FD4A6E"></i><code>#FD4A6E 危险</code></span>
+    </div>
+  </div>
+
+  <div class="mock">
+    <div class="s2-top">
+      <div class="s2-logo">YOLO<span>NEON CONSOLE</span></div>
+      <div class="m-badge"><span class="dot"></span>已连接 · 192.168.0.15</div>
+      <button class="m-theme" onclick="toggleScheme('scheme2')">◐</button>
+    </div>
+    <div class="s2-toolbar">
+      <div class="m-input" style="max-width:200px;"><span class="ph">相机 IP&ensp;</span><span class="val">192.168.0.15</span></div>
+      <div class="m-input"><span class="ph">流地址&ensp;</span><span class="val">rtsp://192.168.0.15:554/stream0</span></div>
+      <div class="m-stepper"><button>−</button><span class="num">通道 0</span><button>+</button></div>
+      <div class="m-btn hero" style="height:36px;padding:0 26px;">⏻ 连接相机</div>
+    </div>
+    <div class="s2-body">
+      <div class="s2-video-wrap">
+        <div class="m-video s2-video">
+          <div class="fps-badge" style="left:14px;top:14px;">rtsp://192.168.0.15:554/stream0 · 通道 0 · 25 FPS</div>
+          <div class="hint">视频预览区域<br><span style="font-size:11px;letter-spacing:1px;">拖拽鼠标可框选标定区域</span></div>
+          <div class="scene">
+            <svg class="person-svg" width="90" height="200" style="left:26%;top:30%;" viewBox="0 0 90 200">
+              <circle cx="45" cy="22" r="14" fill="#2A3542"/>
+              <path d="M25 48 Q45 38 65 48 L70 110 Q45 120 20 110 Z" fill="#2A3542"/>
+              <rect x="27" y="112" width="14" height="70" rx="6" fill="#232C38"/>
+              <rect x="49" y="112" width="14" height="70" rx="6" fill="#232C38"/>
+            </svg>
+            <div class="det-box" style="left:24%;top:24%;width:110px;height:220px;"><span class="tag">person 0.87</span></div>
+            <svg class="person-svg" width="70" height="150" style="left:60%;top:42%;" viewBox="0 0 90 200">
+              <circle cx="45" cy="22" r="14" fill="#262F3C"/>
+              <path d="M25 48 Q45 38 65 48 L70 110 Q45 120 20 110 Z" fill="#262F3C"/>
+              <rect x="27" y="112" width="14" height="70" rx="6" fill="#1F2731"/>
+              <rect x="49" y="112" width="14" height="70" rx="6" fill="#1F2731"/>
+            </svg>
+            <div class="det-box" style="left:58%;top:38%;width:86px;height:164px;"><span class="tag">person 0.72</span></div>
+            <div class="det-box esd" style="left:43%;top:56%;width:150px;height:90px;"><span class="tag">静电杆 ROI</span></div>
+          </div>
+          <div class="m-float-bar s2-float">
+            <div class="m-btn hero" style="height:30px;font-size:11.5px;">标定: 静电杆</div>
+            <div class="m-btn success" style="height:30px;font-size:11.5px;">重设门基准</div>
+          </div>
+        </div>
+      </div>
+      <div class="s2-side">
+        <div class="side-cap">PREVIEW</div>
+        <div class="m-btn success">▶ 开始预览</div>
+        <div class="m-btn danger">■ 停止预览</div>
+        <div class="side-cap">STREAM</div>
+        <div class="m-btn ghost">⇊ 开启拉流</div>
+        <div class="m-btn ghost">⇈ 开启推流</div>
+        <div class="side-cap">CALIBRATION</div>
+        <div class="m-btn ghost">标定: 静电杆</div>
+        <div class="m-btn ghost">重设门基准</div>
+        <div class="m-card dev-card">
+          <div class="dev-status">
+            品牌 <b>ANGEHUA</b><br>
+            CPU <b>23%</b>&ensp;内存 <b>41%</b><br>
+            磁盘 <b>28.6T/32T</b><br>
+            录像 <b>128</b>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="m-log s2-log">
+      <div><span class="t">[09:32:11]</span> 程序已启动，请输入相机 IP 后点击「连接相机」</div>
+      <div><span class="t">[09:32:18]</span> <span class="ok">✓ 相机连接成功：192.168.0.15 (ANGEHUA)</span></div>
+      <div><span class="t">[09:32:25]</span> <span class="info">YOLO 检测已启动：yolo26n.onnx · 置信度 0.50 · NMS 0.45</span></div>
+      <div><span class="t">[09:33:02]</span> <span class="warn">⚡ 人员#3 正在触摸静电杆（持续 2.1 秒）</span></div>
+      <div><span class="t">[09:33:40]</span> <span class="warn">⚠ 操作间门被打开</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     方案三 · 玻璃拟态（渐变光斑背景 + 磨砂玻璃卡片 + 工具条顶栏）
+     ============================================================ -->
+<section class="scheme" id="scheme3" data-mode="dark">
+  <div class="scheme-info">
+    <div class="no">SCHEME 03</div>
+    <h2>玻璃拟态 · Glass Aurora</h2>
+    <p class="desc">
+      galaxy glassmorphism 流派：彩色渐变背景光斑 + 半透明磨砂玻璃卡片（blur 24px）+ 细白描边。
+      布局：顶栏为玻璃工具条（标题 / IP / 流地址 / 状态一行完成），左侧玻璃卡片组（连接、预览操作、设备状态一体），右侧视频玻璃框 + 日志玻璃卡。深浅两模式有完全不同的渐变底色（深：蓝紫→深青；浅：雾蓝→粉紫→薄荷）。
+    </p>
+    <div class="palette">
+      <span class="chip"><i style="background:linear-gradient(140deg,#10121D,#171A2E,#0E2233)"></i><code>深色渐变底</code></span>
+      <span class="chip"><i style="background:rgba(255,255,255,.1)"></i><code>玻璃卡片</code></span>
+      <span class="chip"><i style="background:#6C7BFF"></i><code>#6C7BFF 主色</code></span>
+      <span class="chip"><i style="background:#4EE6A8"></i><code>#4EE6A8 成功</code></span>
+    </div>
+  </div>
+
+  <div class="mock">
+    <div class="blob b1"></div><div class="blob b2"></div>
+    <div class="s3-inner">
+      <div class="s3-top">
+        <div class="s3-logo"><i></i>YOLO 玻璃台</div>
+        <div class="m-input" style="width:180px;"><span class="ph">相机 IP&ensp;</span><span class="val">192.168.0.15</span></div>
+        <div class="m-input" style="flex:1;"><span class="ph">流地址&ensp;</span><span class="val">rtsp://192.168.0.15:554/stream0</span></div>
+        <div class="m-stepper"><button>−</button><span class="num">0</span><button>+</button></div>
+        <div class="m-badge"><span class="dot"></span>已连接</div>
+        <button class="m-theme" onclick="toggleScheme('scheme3')">◐</button>
+      </div>
+      <div class="s3-body">
+        <div class="s3-side">
+          <div class="m-card">
+            <div class="m-card-title">相机</div>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+              <div class="m-btn primary" style="flex:1;height:36px;">⏻ 断开连接</div>
+            </div>
+            <div class="btn-grid">
+              <div class="m-btn success">▶ 开始预览</div>
+              <div class="m-btn danger">■ 停止预览</div>
+              <div class="m-btn ghost">⇊ 开启拉流</div>
+              <div class="m-btn ghost">⇈ 开启推流</div>
+            </div>
+          </div>
+          <div class="m-card">
+            <div class="m-card-title">通道与标定</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;">
+              <span class="m-label" style="margin:0;">通道</span>
+              <div class="m-stepper"><button>−</button><span class="num">0</span><button>+</button></div>
+            </div>
+            <div class="btn-grid" style="grid-template-columns:1fr;">
+              <div class="m-btn ghost">标定: 静电杆</div>
+              <div class="m-btn ghost">重设门基准</div>
+            </div>
+          </div>
+          <div class="m-card" style="flex:1;">
+            <div class="m-card-title">设备状态</div>
+            <div class="dev-box dev-status">
+              品牌 <b>ANGEHUA</b> · <b>192.168.0.15</b><br>
+              CPU <b>23%</b> · 内存 <b>41%</b><br>
+              磁盘 <b>28.6TB / 32.0TB</b><br>
+              录像数 <b>128</b>
+            </div>
+          </div>
+        </div>
+        <div class="s3-main">
+          <div class="s3-video-wrap">
+            <div class="m-video s3-video">
+              <div class="fps-badge" style="left:14px;top:14px;">rtsp://192.168.0.15:554/stream0 · 通道 0 · 25 FPS</div>
+              <div class="hint">视频预览区域<br><span style="font-size:11px;letter-spacing:1px;">拖拽鼠标可框选标定区域</span></div>
+              <div class="scene">
+                <svg class="person-svg" width="90" height="200" style="left:28%;top:28%;" viewBox="0 0 90 200">
+                  <circle cx="45" cy="22" r="14" fill="#2A3542"/>
+                  <path d="M25 48 Q45 38 65 48 L70 110 Q45 120 20 110 Z" fill="#2A3542"/>
+                  <rect x="27" y="112" width="14" height="70" rx="6" fill="#232C38"/>
+                  <rect x="49" y="112" width="14" height="70" rx="6" fill="#232C38"/>
+                </svg>
+                <div class="det-box" style="left:26%;top:22%;width:110px;height:220px;"><span class="tag">person 0.87</span></div>
+                <svg class="person-svg" width="70" height="150" style="left:62%;top:40%;" viewBox="0 0 90 200">
+                  <circle cx="45" cy="22" r="14" fill="#262F3C"/>
+                  <path d="M25 48 Q45 38 65 48 L70 110 Q45 120 20 110 Z" fill="#262F3C"/>
+                  <rect x="27" y="112" width="14" height="70" rx="6" fill="#1F2731"/>
+                  <rect x="49" y="112" width="14" height="70" rx="6" fill="#1F2731"/>
+                </svg>
+                <div class="det-box" style="left:60%;top:36%;width:86px;height:164px;"><span class="tag">person 0.72</span></div>
+                <div class="det-box esd" style="left:45%;top:54%;width:150px;height:90px;"><span class="tag">静电杆 ROI</span></div>
+              </div>
+              <div class="m-float-bar">
+                <div class="m-btn ghost" style="height:30px;font-size:11.5px;">标定: 静电杆</div>
+                <div class="m-btn success" style="height:30px;font-size:11.5px;">重设门基准</div>
+              </div>
+            </div>
+          </div>
+          <div class="m-log s3-log m-card" style="padding:12px 16px;">
+            <div class="m-log-title">运行日志</div>
+            <div class="m-log">
+              <div><span class="t">[09:32:11]</span> 程序已启动，请输入相机 IP 后点击「连接相机」</div>
+              <div><span class="t">[09:32:18]</span> <span class="ok">✓ 相机连接成功：192.168.0.15 (ANGEHUA)</span></div>
+              <div><span class="t">[09:33:02]</span> <span class="warn">⚡ 人员#3 正在触摸静电杆（持续 2.1 秒）</span></div>
+              <div><span class="t">[09:33:40]</span> <span class="warn">⚠ 操作间门被打开</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     方案四 · 极简 Material（三栏 + 全宽日志）
+     ============================================================ -->
+<section class="scheme" id="scheme4" data-mode="light">
+  <div class="scheme-info">
+    <div class="no">SCHEME 04</div>
+    <h2>极简 Material · Clean Studio</h2>
+    <p class="desc">
+      galaxy material design 流派：干净底色 + 白卡片 + 蓝主色 + 克制的柔和阴影，无渐变无发光。
+      布局：白 App bar + 三栏（左配置卡片流 / 中视频大卡 / 右设备状态与流操作列）+ 底部全宽日志。最接近现有 WinForms 的清爽观感，现场用户零适应成本；深色模式同样提供（用于夜班/暗车间）。
+    </p>
+    <div class="palette">
+      <span class="chip"><i style="background:#F7F9FB"></i><code>#F7F9FB 底</code></span>
+      <span class="chip"><i style="background:#FFFFFF"></i><code>#FFFFFF 卡片</code></span>
+      <span class="chip"><i style="background:#1976D2"></i><code>#1976D2 主色</code></span>
+      <span class="chip"><i style="background:#2E9E72"></i><code>#2E9E72 成功</code></span>
+      <span class="chip"><i style="background:#E05A50"></i><code>#E05A50 危险</code></span>
+    </div>
+  </div>
+
+  <div class="mock">
+    <div class="s4-appbar">
+      <div class="s4-logo"><i>Y</i>YOLO 检测系统</div>
+      <div class="m-badge"><span class="dot"></span>已连接 · 192.168.0.15</div>
+      <button class="m-theme" onclick="toggleScheme('scheme4')">◐</button>
+    </div>
+    <div class="s4-body">
+      <div class="s4-col-l">
+        <div class="m-card">
+          <div class="m-card-title">相机连接</div>
+          <div class="field">
+            <span class="m-label">相机 IP</span>
+            <div class="m-input"><span class="val">192.168.0.15</span></div>
+          </div>
+          <div class="field"><div class="m-btn primary" style="width:100%;">断开连接</div></div>
+        </div>
+        <div class="m-card">
+          <div class="m-card-title">视频流配置</div>
+          <div class="field">
+            <span class="m-label">流地址</span>
+            <div class="m-input"><span class="val">rtsp://192.168.0.15:554/stream0</span></div>
+          </div>
+          <div class="field" style="display:flex;align-items:center;justify-content:space-between;">
+            <span class="m-label" style="margin:0;">通道</span>
+            <div class="m-stepper"><button>−</button><span class="num">0</span><button>+</button></div>
+          </div>
+        </div>
+        <div class="m-card">
+          <div class="m-card-title">预览控制</div>
+          <div class="btn-col" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div class="m-btn success">▶ 开始预览</div>
+            <div class="m-btn danger">■ 停止预览</div>
+          </div>
+          <div class="btn-col">
+            <div class="m-btn ghost">标定: 静电杆</div>
+            <div class="m-btn ghost">重设门基准</div>
+          </div>
+        </div>
+      </div>
+      <div class="s4-center">
+        <div class="m-video s4-video">
+          <div class="fps-badge" style="left:14px;top:14px;">rtsp://192.168.0.15:554/stream0 · 通道 0 · 25 FPS</div>
+          <div class="hint">视频预览区域<br><span style="font-size:11px;letter-spacing:1px;">拖拽鼠标可框选标定区域</span></div>
+          <div class="scene">
+            <svg class="person-svg" width="90" height="200" style="left:28%;top:28%;" viewBox="0 0 90 200">
+              <circle cx="45" cy="22" r="14" fill="#2A3542"/>
+              <path d="M25 48 Q45 38 65 48 L70 110 Q45 120 20 110 Z" fill="#2A3542"/>
+              <rect x="27" y="112" width="14" height="70" rx="6" fill="#232C38"/>
+              <rect x="49" y="112" width="14" height="70" rx="6" fill="#232C38"/>
+            </svg>
+            <div class="det-box" style="left:26%;top:22%;width:110px;height:220px;"><span class="tag">person 0.87</span></div>
+            <svg class="person-svg" width="70" height="150" style="left:62%;top:40%;" viewBox="0 0 90 200">
+              <circle cx="45" cy="22" r="14" fill="#262F3C"/>
+              <path d="M25 48 Q45 38 65 48 L70 110 Q45 120 20 110 Z" fill="#262F3C"/>
+              <rect x="27" y="112" width="14" height="70" rx="6" fill="#1F2731"/>
+              <rect x="49" y="112" width="14" height="70" rx="6" fill="#1F2731"/>
+            </svg>
+            <div class="det-box" style="left:60%;top:36%;width:86px;height:164px;"><span class="tag">person 0.72</span></div>
+            <div class="det-box esd" style="left:45%;top:54%;width:150px;height:90px;"><span class="tag">静电杆 ROI</span></div>
+          </div>
+          <div class="m-float-bar">
+            <div class="m-btn ghost" style="height:30px;font-size:11.5px;">标定: 静电杆</div>
+            <div class="m-btn success" style="height:30px;font-size:11.5px;">重设门基准</div>
+          </div>
+        </div>
+      </div>
+      <div class="s4-col-r">
+        <div class="m-card">
+          <div class="m-card-title">设备状态</div>
+          <div class="dev-status" style="margin-top:8px;">
+            品牌 <b>ANGEHUA</b><br>
+            IP &ensp;<b>192.168.0.15</b><br>
+            CPU <b>23%</b> · 内存 <b>41%</b><br>
+            磁盘 <b>28.6T / 32.0T</b><br>
+            录像数 <b>128</b>
+          </div>
+        </div>
+        <div class="m-card">
+          <div class="m-card-title">流操作</div>
+          <div class="btn-col">
+            <div class="m-btn ghost">⇊ 开启拉流</div>
+            <div class="m-btn ghost">⇈ 开启推流</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="s4-logwrap m-card" style="padding:12px 16px;">
+      <div class="m-log-title">运行日志</div>
+      <div class="m-log" style="border:none;background:transparent;padding:0;flex:1;">
+        <div><span class="t">[2026-11-15 09:32:11]</span> 程序已启动，请输入相机 IP 后点击「连接相机」</div>
+        <div><span class="t">[2026-11-15 09:32:18]</span> <span class="ok">✓ 相机连接成功：192.168.0.15 (ANGEHUA)</span></div>
+        <div><span class="t">[2026-11-15 09:32:25]</span> <span class="info">YOLO 检测已启动：yolo26n.onnx · 置信度 0.50 · NMS 0.45</span></div>
+        <div><span class="t">[2026-11-15 09:33:02]</span> <span class="warn">⚡ 人员#3 正在触摸静电杆（持续 2.1 秒）</span></div>
+        <div><span class="t">[2026-11-15 09:33:40]</span> <span class="warn">⚠ 操作间门被打开</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer style="max-width:1280px;margin:60px auto 0;color:#6a7488;font-size:12.5px;line-height:2;">
+  说明：以上 mockup 为静态视觉提案，交互控件（按钮/输入/步进器）仅示意样式与布局；实际 WPF 实现中所有控件均为可交互控件，行为照搬现有 WinForms 版（IP 校验、三态按钮、ROI 拖拽标定热更新、500 行日志裁剪等）。<br>
+  视频区中的检测框、人形与 ROI 虚线框为模拟画面，仅用于展示运行期叠加效果。
+</footer>
+
+<script>
+function toggleScheme(id) {
+  var el = document.getElementById(id);
+  el.dataset.mode = el.dataset.mode === 'dark' ? 'light' : 'dark';
+}
+function setAll(mode) {
+  document.querySelectorAll('.scheme').forEach(function (s) { s.dataset.mode = mode; });
+}
+</script>
+</body>
+</html>
