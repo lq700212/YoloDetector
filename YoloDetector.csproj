@@ -13,38 +13,48 @@
   <ItemGroup>
     <ApplicationDefinition Include="UI\App.xaml" />
   </ItemGroup>
-  <!-- 检测模块已拆分为独立类库（Detection/YoloDetector.Detection.csproj），
-       此处排除其源码避免重复编译，经项目引用使用 -->
+  <!-- 检测模块拆分（v2.11）：通用检测核心沉淀到 kaleidoscope 仓库（git submodule，
+       Kaleidoscope.Detection.dll，命名空间仍为 YoloDetection）；本目录 Detection\ 只剩
+       业务检测层类库（管道 + 静电触摸/门监测分析器）。两处源码都不进主程序编译，
+       排除默认通配避免重复编译，经项目引用使用 -->
   <ItemGroup>
     <Compile Remove="Detection\**\*.cs" />
+    <!-- submodule 内容必须整体排除：SDK 默认通配会把 kaleidoscope 内所有 .cs/
+         bin/obj 扫进主项目（实测会与核心库 DLL 重复编译冲突） -->
+    <Compile Remove="submodules\**\*.cs" />
+    <None Remove="submodules\**" />
+    <Content Remove="submodules\**" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="submodules\kaleidoscope\Vision\Detection\Kaleidoscope.Detection.csproj" />
     <ProjectReference Include="Detection\YoloDetector.Detection.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- 全部依赖均 vendor 到 Detection\libs（零 NuGet、克隆即编译，工厂无网环境可用）：
-         Newtonsoft.Json 原 NuGet 包已按 net45 目标复制 DLL 进 libs，传递依赖链为空
-         （SunnyUI 为 WinForms 界面库，v2.10 起 WPF 化后不再引用） -->
-    <Reference Include="Newtonsoft.Json"><HintPath>Detection\libs\Newtonsoft.Json.dll</HintPath><Private>true</Private></Reference>
-    <!-- OpenCvSharp/OnnxRuntime 已 vendor 到 Detection\libs（离线编译）；
-         native 运行库经类库 csproj 的 None 项流转到本输出目录 -->
+    <!-- 依赖 vendor（零 NuGet、克隆即编译，工厂无网环境可用）：
+         OpenCvSharp/OnnxRuntime/SkiaSharp/System.* 统一指向 submodule 内 libs
+         （与核心库共用同一份，防双处漂移）；Newtonsoft.Json 是宿主 App/Configuration
+         层依赖（核心库不用），vendor 在主项目 libs\（SunnyUI 为 WinForms 遗留，
+         v2.10 起 WPF 化后已移除） -->
+    <Reference Include="Newtonsoft.Json"><HintPath>libs\Newtonsoft.Json.dll</HintPath><Private>true</Private></Reference>
+    <!-- OpenCvSharp/OnnxRuntime 已 vendor 到 submodule libs（离线编译）；
+         native 运行库经核心库 csproj 的 None 项流转到本输出目录 -->
     <Reference Include="OpenCvSharp">
-      <HintPath>Detection\libs\OpenCvSharp.dll</HintPath>
+      <HintPath>submodules\kaleidoscope\Vision\Detection\libs\OpenCvSharp.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Microsoft.ML.OnnxRuntime">
-      <HintPath>Detection\libs\Microsoft.ML.OnnxRuntime.dll</HintPath>
+      <HintPath>submodules\kaleidoscope\Vision\Detection\libs\Microsoft.ML.OnnxRuntime.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="SkiaSharp">
-      <HintPath>Detection\libs\SkiaSharp.dll</HintPath>
+      <HintPath>submodules\kaleidoscope\Vision\Detection\libs\SkiaSharp.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <!-- net472 上使用 netstandard 依赖库所需的 Span/Memory 支撑程序集 -->
-    <Reference Include="System.Memory"><HintPath>Detection\libs\System.Memory.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="System.Buffers"><HintPath>Detection\libs\System.Buffers.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="System.Numerics.Vectors"><HintPath>Detection\libs\System.Numerics.Vectors.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="System.Runtime.CompilerServices.Unsafe"><HintPath>Detection\libs\System.Runtime.CompilerServices.Unsafe.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="System.Memory"><HintPath>submodules\kaleidoscope\Vision\Detection\libs\System.Memory.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="System.Buffers"><HintPath>submodules\kaleidoscope\Vision\Detection\libs\System.Buffers.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="System.Numerics.Vectors"><HintPath>submodules\kaleidoscope\Vision\Detection\libs\System.Numerics.Vectors.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="System.Runtime.CompilerServices.Unsafe"><HintPath>submodules\kaleidoscope\Vision\Detection\libs\System.Runtime.CompilerServices.Unsafe.dll</HintPath><Private>true</Private></Reference>
   </ItemGroup>
   <!-- 防止默认通配把类库的构建中间产物当作内容项扫入 -->
   <ItemGroup>

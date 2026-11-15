@@ -1,57 +1,40 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    YOLO 检测模块类库（可独立迁移，离线编译，跨平台）：
-    - 多目标编译，全平台能力一致（使用不变、效果不变）：
-        net472          → Windows .NET Framework 宿主
-        netstandard2.0  → .NET Core 2+/net5+/net8+/Mono（Windows/Linux/macOS）
-      Bitmap 后端统一采用 SkiaSharp（Google Skia 跨平台封装）：
-      MatToSKBitmap/SKBitmapToMat 与 YoloBuiltinVisualizer 在两大目标下
-      同一套 API、同一渲染效果，无任何条件编译差异
-  - 离线编译：依赖 DLL 已 vendor 到 libs\（Reference HintPath），不依赖 NuGet 还原；
-      native 运行库由 tools\collect-native.ps1 一次性收集到 libs\native
-      （含 Windows 的 .dll 与 Linux 的 .so，不参与编译，仅运行时需要）
-  - 迁移方式：把本目录整个复制到目标解决方案 + 添加项目引用（或编译后引用 DLL）
-  - 依赖约束：本程序集禁止引用宿主业务代码（UI/App/Cameras/Configuration），
-      日志与配置全部经委托/参数注入（见 LogManager.Initialize 与各接口注释）
+    YoloDetector 业务检测层类库（net472 宿主专用）：
+    v2.11 起 YOLO 检测通用核心（检测器/帧源/接口/互转/可视化/ROI/日志）已沉淀到
+    kaleidoscope 仓库（git submodule，Kaleidoscope.Detection.dll，命名空间仍为
+    YoloDetection——同名命名空间跨程序集类型无缝解析，宿主代码零 using 改动），
+    本程序集只保留与具体业务耦合的部分：
+      - YoloDetectionService     检测管道实现（Monitor 生产者-消费者 + 单槽位缓冲，
+                                 带静电触摸/门监测业务旁路；管道依赖业务分析器，
+                                 故随业务层留在宿主）
+      - EsdContactAnalyzer 等    静电杆触摸检测业务分析器（状态机 + 叠加绘制）
+      - DoorMonitorAnalyzer 等   门状态监测业务分析器（基准比对 + 防抖 + 叠加绘制）
+    依赖方向：本程序集 → Kaleidoscope.Detection（submodule 内核心库）。
+    约束保持不变：禁止引用宿主业务命名空间之外的内容（UI/App/Cameras/
+    Configuration 不反被本库引用）；日志经 LogManager（核心库）委托注入；
+    ESD/门运行参数由调用方经 DTO 注入（本库不读配置文件）。
   -->
   <PropertyGroup>
-    <TargetFrameworks>net472;netstandard2.0</TargetFrameworks>
+    <TargetFramework>net472</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>7.3</LangVersion>
-    <!-- MatExtensions 的整块内存拷贝使用 Buffer.MemoryCopy 指针重载（全平台 memmove） -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
-  <!-- 离线依赖：vendor 的托管程序集（编译期引用，运行期随输出分发） -->
+  <!-- 通用检测核心：kaleidoscope submodule 内的多目标类库（net472 目标在此被消费） -->
+  <ItemGroup>
+    <ProjectReference Include="..\submodules\kaleidoscope\Vision\Detection\Kaleidoscope.Detection.csproj" />
+  </ItemGroup>
+  <!-- OpenCvSharp：Esd/Door 叠加渲染器直接使用 Mat 绘制（HintPath 指向 submodule libs，
+       与核心库共用同一份 vendor DLL，避免双处漂移） -->
   <ItemGroup>
     <Reference Include="OpenCvSharp">
-      <HintPath>libs\OpenCvSharp.dll</HintPath>
+      <HintPath>..\submodules\kaleidoscope\Vision\Detection\libs\OpenCvSharp.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="Microsoft.ML.OnnxRuntime">
-      <HintPath>libs\Microsoft.ML.OnnxRuntime.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="SkiaSharp">
-      <HintPath>libs\SkiaSharp.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-  </ItemGroup>
-  <!-- Span/Memory 支撑程序集：OpenCvSharp/OnnxRuntime/SkiaSharp 的 netstandard2.0 版在
-       net472 与 netstandard2.0 目标下都需要（netstandard2.1+ 才内置 Span） -->
-  <ItemGroup>
-    <Reference Include="System.Memory"><HintPath>libs\System.Memory.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="System.Buffers"><HintPath>libs\System.Buffers.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="System.Numerics.Vectors"><HintPath>libs\System.Numerics.Vectors.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="System.Runtime.CompilerServices.Unsafe"><HintPath>libs\System.Runtime.CompilerServices.Unsafe.dll</HintPath><Private>true</Private></Reference>
-  </ItemGroup>
-  <!-- native 运行库（由 collect-native.ps1 收集）：Link 平铺到输出根目录，
-       并经 ProjectReference 流转到宿主输出目录（运行时 DllImport 按 exe 目录解析） -->
-  <ItemGroup>
-    <None Include="libs\native\**\*.dll" CopyToOutputDirectory="PreserveNewest">
-      <Link>%(Filename)%(Extension)</Link>
-    </None>
-    <None Include="libs\native\**\*.so" CopyToOutputDirectory="PreserveNewest">
-      <Link>%(Filename)%(Extension)</Link>
-    </None>
+    <!-- Span/Memory 支撑程序集：显式对齐核心库引用版本，消除 RAR 版本差异告警(MSB3276) -->
+    <Reference Include="System.Memory"><HintPath>..\submodules\kaleidoscope\Vision\Detection\libs\System.Memory.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="System.Buffers"><HintPath>..\submodules\kaleidoscope\Vision\Detection\libs\System.Buffers.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="System.Numerics.Vectors"><HintPath>..\submodules\kaleidoscope\Vision\Detection\libs\System.Numerics.Vectors.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="System.Runtime.CompilerServices.Unsafe"><HintPath>..\submodules\kaleidoscope\Vision\Detection\libs\System.Runtime.CompilerServices.Unsafe.dll</HintPath><Private>true</Private></Reference>
   </ItemGroup>
 </Project>

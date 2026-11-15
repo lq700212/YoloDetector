@@ -1,13 +1,13 @@
 ---
 name: "收集native运行库"
-description: "重新收集检测模块的 native 运行库（OpenCvSharpExtern/onnxruntime/libSkiaSharp 等）到 Detection/libs/native/。注意：native 已入 git，克隆即完整，日常无需执行；仅在更换 OpenCvSharp/OnnxRuntime/SkiaSharp 依赖版本后（需同步改脚本内版本号）、或 native 文件缺失/损坏时使用。脚本为主：人工运行 powershell 脚本即可完成，AI 只需代跑并验证产物。"
+description: "重新收集检测模块的 native 运行库（OpenCvSharpExtern/onnxruntime/libSkiaSharp 等）到检测核心库 submodules/kaleidoscope/Vision/Detection/libs/native/。注意：native 已入 git，克隆即完整，日常无需执行；仅在更换 OpenCvSharp/OnnxRuntime/SkiaSharp 依赖版本后（需同步改脚本内版本号）、或 native 文件缺失/损坏时使用。脚本为主：人工运行 powershell 脚本即可完成，AI 只需代跑并验证产物。"
 ---
 
 # 收集 native 运行库（collect-native）
 
 ## 背景
 
-检测类库的托管依赖（OpenCvSharp.dll 等）与 native 运行库**均已 vendor 入 git**（`Detection/libs/` + `Detection/libs/native/`，Windows 与 Linux 双平台共约 201MB，最大单文件 72MB < GitHub 100MB 限制），克隆仓库即为完整可编译、可运行状态（Windows 与 Linux 双平台开箱可用），**日常无需执行本技能**。本脚本仅在更换依赖版本时用于从 NuGet 全局缓存重新收集新版 native。
+检测类库的托管依赖（OpenCvSharp.dll 等）与 native 运行库**均已 vendor 入 git**（v2.11 起位于 kaleidoscope submodule：`submodules/kaleidoscope/Vision/Detection/libs/` + `libs/native/`，Windows 与 Linux 双平台共约 201MB，最大单文件 72MB < GitHub 100MB 限制），`--recursive` 克隆仓库即为完整可编译、可运行状态（Windows 与 Linux 双平台开箱可用），**日常无需执行本技能**。本脚本仅在更换依赖版本时用于从 NuGet 全局缓存重新收集新版 native。
 
 ## 何时需要执行
 
@@ -24,7 +24,7 @@ description: "重新收集检测模块的 native 运行库（OpenCvSharpExtern/o
 powershell -ExecutionPolicy Bypass -File tools\collect-native.ps1
 ```
 
-脚本逻辑：从 `%USERPROFILE%\.nuget\packages\` 复制 win-x64 native（OpenCvSharpExtern.dll、opencv_videoio_ffmpeg4100_64.dll、onnxruntime.dll、onnxruntime_providers_shared.dll、libSkiaSharp.dll）到 `Detection\libs\native\`；libSkiaSharp.so（Linux 部署用）在 NuGet 缓存有 `skiasharp.nativeassets.linux` 包时一并收集，缺失则打印手动获取提示（从 nuget.org 下载 SkiaSharp.NativeAssets.Linux 的 nupkg，改扩展名 .zip 解压取 `runtimes/linux-x64/native/libSkiaSharp.so`）。
+脚本逻辑：从 `%USERPROFILE%\.nuget\packages\` 复制 win-x64 native（OpenCvSharpExtern.dll、opencv_videoio_ffmpeg4100_64.dll、onnxruntime.dll、onnxruntime_providers_shared.dll、libSkiaSharp.dll）到 `submodules\kaleidoscope\Vision\Detection\libs\native\`；libSkiaSharp.so（Linux 部署用）在 NuGet 缓存有 `skiasharp.nativeassets.linux` 包时一并收集，缺失则打印手动获取提示（从 nuget.org 下载 SkiaSharp.NativeAssets.Linux 的 nupkg，改扩展名 .zip 解压取 `runtimes/linux-x64/native/libSkiaSharp.so`）。
 
 ## 验证
 

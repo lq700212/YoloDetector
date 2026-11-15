@@ -14,15 +14,17 @@
 - **.NET Framework 4.7.2** WPF（`UseWPF=true`，v2.10 起界面层为 WPF 玻璃拟态主题；非 .NET Core/.NET 5+，勿引入其运行时 API；**禁止再引入 WinForms/System.Drawing**——v2.10 已整体移除）
 - **C# 语言版本固定为 7.3**（`YoloDetector.csproj` 中 `<LangVersion>7.3</LangVersion>`）——**禁止使用 C# 8+ 语法**（无 `using var`、无 switch 表达式、无可空引用类型注解、无 `^`/`..` 索引切片、无默认接口方法）
 - **平台目标 x64**（OpenCV / ONNX Runtime 的 native DLL 为 64 位，勿改成 AnyCPU/x86）
-- SDK 风格 csproj：`.cs` 自动包含，新增源码文件无需登记；配置/模型的复制规则（`Content Include`）集中在 csproj 内维护；**例外**：`Detection\` 目录源码由独立类库 `Detection\YoloDetector.Detection.csproj` 编译（主 csproj 已 `Compile Remove`），在 Detection/ 下新增 .cs 自动进类库，放其他目录进主程序
-- **检测类库多目标与离线依赖**：`TargetFrameworks=net472;netstandard2.0`，两目标能力完全一致（无条件编译差异）——位图后端统一 SkiaSharp（SKBitmap，Bgra8888 与 OpenCV BGRA 布局对齐，SIMD CvtColor + Buffer.MemoryCopy 整块拷贝，1080P 约 5ms）；**禁止引入 System.Drawing 到类库**（Windows 专属，破坏跨平台；宿主显示层在 App/SkBitmapWpfExtensions.cs 做一次 SKBitmap→WPF WriteableBitmap 边界转换）；托管依赖与 native 运行库均已 vendor 入 git（`Detection\libs\` + `Detection\libs\native\`，Windows 与 Linux 双平台共约 201MB，最大单文件 libOpenCvSharpExtern.so 72MB < GitHub 100MB 限制），**克隆即完整、编译运行全离线、双平台开箱可用**；`tools\collect-native.ps1` 仅在更换 OpenCvSharp/OnnxRuntime/SkiaSharp 依赖版本后重新收集时使用；ps1 脚本含中文必须存为 **UTF-8 带 BOM**（PowerShell 5.1 无 BOM 按 ANSI 解析会炸）
-- 关键库（托管 DLL 已 vendor 到 `Detection\libs\`，离线编译）：
-  - OpenCvSharp 4.10（RTSP 视频捕获、Mat 图像处理、绘制）
-  - Microsoft.ML.OnnxRuntime 1.20（YOLO 推理）
-  - Newtonsoft.Json 13.0.3（配置序列化；DLL 已 vendor 到 `Detection\libs\`，零 NuGet）
+- SDK 风格 csproj：`.cs` 自动包含，新增源码文件无需登记；配置/模型的复制规则（`Content Include`）集中在 csproj 内维护；**例外**：`Detection\` 目录源码由独立类库 `Detection\YoloDetector.Detection.csproj` 编译（主 csproj 已 `Compile Remove`），在 Detection/ 下新增 .cs 自动进业务类库，放其他目录进主程序
+- **检测域双层结构（v2.11）**：通用检测核心沉淀在 kaleidoscope 仓库（git submodule，`submodules\kaleidoscope\Vision\Detection\`，程序集 `Kaleidoscope.Detection.dll`，**命名空间保持 `YoloDetection`**）；宿主 `Detection\` 只剩业务层（管道 YoloDetectionService + 静电触摸/门监测分析器，程序集 `YoloDetector.Detection.dll`，ProjectReference 核心库）。核心库改公共 API 前先评估对宿主与 harness 的影响并同步。
+- **submodule 是构建前置**：克隆必须 `git clone --recursive`（或 `git submodule update --init --recursive`），否则缺核心库编不过；主 csproj 已 `Compile/None/Content Remove="submodules\**"`——**SDK 默认通配会把 submodule 内全部 .cs 扫进主程序重复编译（实测冲突），此排除规则勿删**
+- **核心库多目标与离线依赖**：kaleidoscope/Vision/Detection `TargetFrameworks=net472;netstandard2.0`，两目标能力完全一致（无条件编译差异）——位图后端统一 SkiaSharp（SKBitmap，Bgra8888 与 OpenCV BGRA 布局对齐，SIMD CvtColor + Buffer.MemoryCopy 整块拷贝，1080P 约 5ms）；**禁止引入 System.Drawing 到类库**（Windows 专属，破坏跨平台；宿主显示层在 App/SkBitmapWpfExtensions.cs 做一次 SKBitmap→WPF WriteableBitmap 边界转换）；托管依赖与 native 运行库均已 vendor 入 kaleidoscope git（`Vision/Detection/libs/` + `libs/native/`，Windows 与 Linux 双平台共约 201MB，最大单文件 libOpenCvSharpExtern.so 72MB < GitHub 100MB 限制），**克隆即完整、编译运行全离线、双平台开箱可用**；`tools\collect-native.ps1` 仅在更换 OpenCvSharp/OnnxRuntime/SkiaSharp 依赖版本后重新收集时使用（收集目标路径已改为 submodule libs）；ps1 脚本含中文必须存为 **UTF-8 带 BOM**（PowerShell 5.1 无 BOM 按 ANSI 解析会炸）
+- 关键库（托管 DLL vendor 位置，离线编译）：
+  - OpenCvSharp 4.10（RTSP 视频捕获、Mat 图像处理、绘制）→ `submodules\kaleidoscope\Vision\Detection\libs\`
+  - Microsoft.ML.OnnxRuntime 1.20（YOLO 推理）→ 同上
+  - Newtonsoft.Json 13.0.3（配置序列化；宿主 App/Configuration 层自用，核心库不用）→ 主仓库 `libs\`
   - 界面层零第三方 UI 库：原生 WPF + 自定义玻璃拟态主题（`UI/Themes/`，深浅双模式；v2.10 起 SunnyUI 已随 WinForms 移除）
 
-- **主项目也零 NuGet**：v2.6 起 csproj 无任何 PackageReference，全部依赖走 `Reference + HintPath` 指向 `Detection\libs\`——新机器克隆即编译，禁止再引入 PackageReference（新依赖一律复制 DLL 进 libs 并写明目标框架来源）
+- **主项目也零 NuGet**：v2.6 起 csproj 无任何 PackageReference，全部依赖走 `Reference + HintPath`（检测域依赖指 submodule libs、宿主自用指主仓库 `libs\`）——新机器 `--recursive` 克隆即编译，禁止再引入 PackageReference（新依赖一律复制 DLL 进对应 libs 并写明目标框架来源）
   - System.Net.Http（流地址测试）
 - 构建：`dotnet build YoloDetector.csproj`（见下方"构建与验证命令"），输出到 `bin\Debug\net472\`
 - 已移除 LibVLCSharp/VideoLAN 包与 YOLOTest 历史实验区（模型获取指南已迁至 `docs/ONNX模型获取指南.md`）；`docs\` 保留 `ARCHITECTURE.md`（架构）、`MODULE.md`（模块接入指南）、`ONNX模型获取指南.md`（换模型）、`技术分享-人员检测与人手动作检测实现详解.md`（小白向原理讲解/分享会材料）四份
@@ -33,17 +35,19 @@
 YoloDetector/
 ├── UI/                     视图层（WPF）：App.xaml(入口) + MainWindow.xaml(.cs) + Themes/(玻璃拟态主题) + RoiSelectionImage.cs(ROI框选)
 ├── App/                    编排层：VideoDetectionController(帧流转/生命周期)、CameraController(连接/轮询)、SkBitmapWpfExtensions(显示边界)
-├── Detection/              检测域【独立类库 YoloDetector.Detection.dll，命名空间 YoloDetection】：接口/检测器/管道/帧源/可视化器/后处理器/日志门面
+├── submodules/kaleidoscope git submodule：通用库仓库（检测通用核心在其 Vision/Detection/，核心类库 Kaleidoscope.Detection.dll）
+├── Detection/              检测域业务层【独立类库 YoloDetector.Detection.dll，命名空间 YoloDetection】：管道/静电接触分析/门监测（引用 submodule 核心库）
 ├── Cameras/                相机抽象：ICameraApi + 品牌实现 + CameraApiFactory + DeviceStatus
 ├── Configuration/          配置：AppConfig 加载器 + CameraConfig/YoloConfig 模型
 ├── Infrastructure/Logging/ 文件日志 Logger
+├── libs/                   宿主自用 vendor 依赖（Newtonsoft.Json）
 ├── appsettings.json        主配置（激活品牌名 ActiveCameraConfig）
 ├── cameraConfigs/*.json    各品牌相机参数
 ├── Detection/yoloConfig.json + esdConfig.json          YOLO 与静电触摸检测配置（归属主项目，类库只收参数）
 └── Detection/model/*.onnx                              检测与姿态模型（含 yolo11n-pose，脚本 tools/download_pose_model.py 下载）
 ```
 
-依赖方向：`UI → App → Detection/Cameras → Infrastructure/Configuration`。**UI 层禁止接触 OpenCV Mat**；**Detection 层禁止依赖 AppConfig/UI**（所需配置由调用方经参数注入）。**Detection 是独立类库程序集（命名空间 `YoloDetection`）**：禁止 using 宿主业务命名空间（UI/App/Cameras/Configuration/Infrastructure），日志经 `LogManager.Initialize(outputSink:, uiSink:)` 委托注入——保证整目录可迁移（接入指南 `docs/MODULE.md`）。
+依赖方向：`UI → App → Detection/Cameras → Infrastructure/Configuration`。**UI 层禁止接触 OpenCV Mat**；**Detection 层禁止依赖 AppConfig/UI**（所需配置由调用方经参数注入）。**检测域是两个独立类库程序集（命名空间均为 `YoloDetection`，同名命名空间跨程序集类型无缝解析）**：核心库（submodule，可独立迁移复用）+ 业务库（宿主，引用核心库）；禁止 using 宿主业务命名空间（UI/App/Cameras/Configuration/Infrastructure），日志经 `LogManager.Initialize(outputSink:, uiSink:)` 委托注入——核心库整目录可迁移（接入指南：kaleidoscope `Vision/Detection/README.md` + 宿主 `docs/MODULE.md`）。
 
 ## 铁律（违反即返工）
 
@@ -63,12 +67,14 @@ YoloDetector/
 
 ## 代码约定
 
-- **新功能动手前先自问"能不能进 Detection 类库"（用户强制约定，每次必须执行，不等提醒）**：
+- **新功能动手前先自问"能不能进检测类库"（用户强制约定，每次必须执行，不等提醒）**：
   判断标准——这段逻辑脱离宿主后是否仍成立（不依赖 WPF 控件 / Dispatcher / AppConfig / 相机品牌 / UI 线程）？
-  - **能 → 必须优先封装进 Detection 类库**（纯逻辑、可单测、随库迁移），宿主只留薄壳接线
-    （范例：`RoiSelectionState`/`ZoomMapping` 在类库，`RoiSelectionImage` 只是 WPF 薄壳）；
-  - 部分能 → 拆分：纯逻辑进类库，平台相关壳留宿主（单文件可复制）；
-  - 自检问题：**把 `Detection\` 目录复制到新项目后，这个功能是否零重做即可用？** 答案为否就重新分层；
+  - **通用（其他项目也能用）→ 必须封装进 kaleidoscope 核心库**（`submodules\kaleidoscope\Vision\Detection\`，
+    在 kaleidoscope 仓库内改、push 后更新 submodule 指针），宿主只留薄壳接线
+    （范例：`RoiSelectionState`/`ZoomMapping` 在核心库，`RoiSelectionImage` 只是 WPF 薄壳）；
+  - 仅本业务用（如静电触摸/门监测这类具体工厂场景）→ 进宿主业务类库 `Detection\`；
+  - 部分能 → 拆分：纯逻辑进核心/业务类库，平台相关壳留宿主（单文件可复制）；
+  - 自检问题：**把核心库复制到新项目后，这个功能是否零重做即可用？** 答案为否就重新分层；
   - 类库侧禁用 UI 框架类型（用 float 参数/类库自有结构如 `EsdRoiRect` 代替 Point/Rectangle）。
 - 类、方法、属性用 PascalCase；私有字段用 `_camelCase`；接口前缀 `I`；**文件名与公共类名保持一致**（如 `AngehuaCameraApiClient.cs` ↔ `class AngehuaCameraApiClient`）。
 - 控件命名沿用匈牙利前缀：`lbl` / `txt` / `btn` / `badge` / `num` 等（跟随 `UI/MainWindow.xaml` 既有风格）；XAML 控件必须保留 `x:Name`（可访问性树/自动化测试靠 AutomationId 定位）。
@@ -134,21 +140,22 @@ YoloDetector/
 | `App/SkBitmapWpfExtensions.cs` | SKBitmap→WriteableBitmap 宿主边界转换（WPF 显示专用，整块 WritePixels 约 2~3ms，复用单实例逐帧零分配） |
 | `App/SoftwareRenderingPolicy.cs` | 渲染模式决策（远程串流双指针修复 v2.10.3）：检测远程控制软件进程切软件渲染，`ForceSoftwareRendering` 配置可覆盖；进程匹配为纯函数可单测 |
 | `App/CameraController.cs` | 相机连接状态机、防重入状态轮询、拉/推流操作 |
-| `Detection/YoloDetectionService.cs` | 检测管道（Monitor 生产者-消费者、单槽位缓冲、快照事件、有界停止） |
-| `Detection/RtspFrameCapturer.cs` | RTSP 帧捕获（线程私有 VideoCapture、断流两层自愈：连续失败重连+心跳看门狗强杀重建、失败路径零泄漏） |
-| `Detection/YoloV26Detector.cs` | YOLO 推理：letterbox 预处理、双格式输出解析、NMS、TargetClassIds 过滤 |
-| `Detection/YoloPoseDetector.cs` | YOLO-pose 姿态推理：逐人裁剪扩边→17关键点还原；输出布局/动态维自动兼容 |
+| `Detection/YoloDetectionService.cs` | 检测管道（Monitor 生产者-消费者、单槽位缓冲、快照事件、有界停止）；带 ESD/门业务旁路，随业务留宿主 |
+| `submodules\kaleidoscope\Vision\Detection\RtspFrameCapturer.cs` | RTSP 帧捕获（线程私有 VideoCapture、断流两层自愈：连续失败重连+心跳看门狗强杀重建、失败路径零泄漏）；v2.11 迁核心库 |
+| `submodules\kaleidoscope\Vision\Detection\YoloV26Detector.cs` | YOLO 推理：letterbox 预处理、双格式输出解析、NMS、TargetClassIds 过滤；v2.11 迁核心库 |
+| `submodules\kaleidoscope\Vision\Detection\YoloPoseDetector.cs` | YOLO-pose 姿态推理：逐人裁剪扩边→17关键点还原；输出布局/动态维自动兼容；v2.11 迁核心库 |
 | `Detection/EsdContactAnalyzer.cs` | 静电杆接触状态机（手腕落区+持续时长认定+宽限保持+轨迹跟踪）；仅检测线程串行调用 |
 | `Detection/DoorMonitorAnalyzer.cs` | 门状态监测（关门基准比对+亮度归一化抗光照+人遮挡排除+防抖状态机）；仅检测线程串行调用，SetBaseline 由 UI 线程调（引用原子替换） |
 | `Detection/EsdOverlayRenderer.cs` | 静电接触叠加绘制（OpenCV 原地矢量绘制；标签用英文，PutText 不支持中文） |
-| `Detection/RoiSelectionState.cs` | ROI 拖拽框选状态机（类库内纯逻辑，零 UI 框架依赖；误触 <5px 忽略，随库迁移） |
-| `Detection/ZoomMapping.cs` | Zoom(letterbox) 模式坐标换算（控件点→归一化 + 拖拽端到端换算 ROI，类库内纯函数可单测） |
-| `Detection/MatExtensions.cs` | Mat↔SKBitmap 高性能互转（唯一转换入口，全平台无损） |
-| `Detection/YoloBuiltinVisualizer.cs` | Skia 红框可视化器（跨平台；工厂与 OpenCV 绿框在 Visualizers.cs） |
-| `Detection/IDetectionPipeline.cs` / `IFrameSource.cs` / `IYoloDetector.cs` / `IDetectionVisualizer.cs` / `IDetectorFactory.cs` / `IDetectionResultProcessor.cs` | 检测域各抽象接口（含所有权/线程契约注释） |
+| `submodules\kaleidoscope\Vision\Detection\RoiSelectionState.cs` | ROI 拖拽框选状态机（核心库内纯逻辑，零 UI 框架依赖；误触 <5px 忽略）；v2.11 迁核心库 |
+| `submodules\kaleidoscope\Vision\Detection\ZoomMapping.cs` | Zoom(letterbox) 模式坐标换算（控件点→归一化 + 拖拽端到端换算 ROI，纯函数可单测）；v2.11 迁核心库 |
+| `submodules\kaleidoscope\Vision\Detection\MatExtensions.cs` | Mat↔SKBitmap 高性能互转（唯一转换入口，全平台无损）；v2.11 迁核心库 |
+| `submodules\kaleidoscope\Vision\Detection\YoloBuiltinVisualizer.cs` | Skia 红框可视化器（跨平台；工厂与 OpenCV 绿框在 Visualizers.cs）；v2.11 迁核心库 |
+| `submodules\kaleidoscope\Vision\Detection\` 下 `IDetectionPipeline.cs` / `IFrameSource.cs` / `IYoloDetector.cs` / `IPoseDetector.cs` / `IDetectionVisualizer.cs` / `IDetectionResultProcessor.cs` | 检测域各抽象接口（含所有权/线程契约注释）；v2.11 迁核心库 |
+| `submodules\kaleidoscope\Vision\Detection\Kaleidoscope.Detection.csproj` | 核心库工程（多目标 net472;netstandard2.0、libs vendor、native 流转规则）；宿主 `Detection\YoloDetector.Detection.csproj` 为业务类库工程（net472，引用核心库） |
 | `Cameras/ICameraApi.cs` | 相机 API 抽象（构造注入 IP，方法不带 ip 参数）；实现放 `AngehuaCameraApiClient.cs`，新品牌照此模式扩展并在 `CameraApiFactory` 注册 |
 | `Configuration/AppConfig.cs` | 配置组合根（静态加载器）；配置模型在同目录 `CameraConfig.cs` / `YoloConfig.cs` / `EsdConfig.cs` |
-| `Detection/LogManager.cs` | 检测模块日志门面（分级开关 + 输出/UI 通道委托注入，模块内零宿主依赖） |
+| `submodules\kaleidoscope\Vision\Detection\LogManager.cs` | 检测模块日志门面（分级开关 + 输出/UI 通道委托注入，模块内零宿主依赖）；v2.11 迁核心库 |
 | `Infrastructure/Logging/Logger.cs` | 文件日志（logs\log_yyyy-MM-dd.txt，UTF-8） |
 | `Detection/yoloConfig.json` | YOLO 运行参数（阈值、模型路径、可视化方案、日志开关） |
 | `Detection/esdConfig.json` | 静电触摸检测运行参数（Enabled/姿态模型路径/ROI 标定/Hold/Grace），宿主 `EsdConfig.ToOptions()` 转模块参数注入 |

@@ -1,29 +1,45 @@
 # YOLO 检测模块接入指南
 
 > 目标读者：需要把本项目的 YOLO 检测能力接入到自己项目中的开发人员。
-> 模块以独立类库 `YoloDetector.Detection.dll` 交付，**不依赖本项目的任何业务代码**（UI/相机/配置均通过接口与委托注入），复制即用。
+> **v2.11 起模块拆为两层**（下文涉及的类型位置以此为准）：
+> 1. **通用检测核心库**：沉淀在 [kaleidoscope](https://github.com/lq700212/kaleidoscope) 仓库
+>    `Vision/Detection/`（程序集 `Kaleidoscope.Detection.dll`，**命名空间仍为 `YoloDetection`**，
+>    多目标 net472/netstandard2.0，依赖 vendor 入库）——检测器（YoloV26Detector/YoloPoseDetector）、
+>    帧源（RtspFrameCapturer）、抽象接口（IYoloDetector/IDetectionPipeline/IFrameSource 等）、
+>    MatExtensions/Visualizers/RoiSelectionState/ZoomMapping/EsdRoiRect/LogManager。
+>    **其他项目接入用它**：整目录复制或 submodule 引用均可，接入指南见 kaleidoscope 的
+>    `Vision/Detection/README.md`。
+> 2. **宿主业务检测层**：本仓库 `Detection\`（程序集 `YoloDetector.Detection.dll`，引用核心库）——
+>    检测管道 YoloDetectionService（带静电触摸/门监测业务旁路）与两个业务分析器组。
+>    需要整套"检测+静电触摸/门监测"才复制这层。
+> 本指南的注入契约（Mat 所有权/日志委托/参数注入）两层通用；文件清单以两层实际内容为准。
 
 ## 1. 模块包含什么
 
 ```
-Detection/                        ← 整个目录复制走即可
-├── YoloDetector.Detection.csproj 类库工程文件（net472;netstandard2.0 双目标 / C# 7.3）
+【通用核心层】kaleidoscope 仓库 Vision/Detection/（独立复用，整目录复制走即可）
+├── Kaleidoscope.Detection.csproj 核心库工程（net472;netstandard2.0 双目标 / C# 7.3）
 ├── YoloV26Detector.cs            YOLO 推理实现（letterbox 预处理/双格式解析/NMS）
 ├── YoloPoseDetector.cs           YOLO-pose 姿态推理（逐人裁剪/COCO 17关键点）
-├── YoloDetectionService.cs       检测管道（后台检测线程/单槽位缓冲/Monitor 停止协议/ESD 旁路）
-├── EsdContactAnalyzer.cs         静电杆接触状态机（手腕落区+持续时长+跨帧跟踪）
-├── EsdOverlayRenderer.cs         静电接触叠加绘制（OpenCV 原地矢量绘制）
-├── EsdAnalysisOptions.cs / EsdRoiRect.cs   ESD 参数（含 ROI 热更新入口）/ 通用浮点矩形
-├── RoiSelectionState.cs          ROI 拖拽框选状态机（纯逻辑，任意 UI 框架可用）
-├── ZoomMapping.cs                Zoom(letterbox) 模式坐标换算（控件点→归一化，纯函数）
 ├── RtspFrameCapturer.cs          RTSP 帧源（可选，自带视频源时不需要）
 ├── Visualizers.cs                可视化器工厂 + OpenCV 绿框可视化器
 ├── YoloBuiltinVisualizer.cs      Skia 红框可视化器（跨平台）
 ├── MatExtensions.cs              Mat↔SKBitmap 高性能互转（全平台无损）
 ├── DetectionResult.cs / PoseResult.cs / YoloClasses.cs   结果模型 / COCO 类别表
+├── EsdRoiRect.cs                 通用浮点矩形（ROI 框选/换算载体）
+├── RoiSelectionState.cs          ROI 拖拽框选状态机（纯逻辑，任意 UI 框架可用）
+├── ZoomMapping.cs                Zoom(letterbox) 模式坐标换算（控件点→归一化，纯函数）
 ├── LogManager.cs                 日志门面（输出通道由宿主注入）
-├── libs/                         离线托管依赖（已入 git）+ libs/native/ 运行库（collect 脚本收集）
+├── libs/                         离线托管依赖（已入 git）+ libs/native/ 运行库（双平台）
 └── I*.cs                         抽象接口（见下表）
+
+【宿主业务层】YoloDetector 仓库 Detection\（需静电触摸/门监测才复制）
+├── YoloDetector.Detection.csproj 业务类库工程（net472，引用核心库）
+├── YoloDetectionService.cs       检测管道（后台检测线程/单槽位缓冲/Monitor 停止协议/ESD 旁路）
+├── EsdContactAnalyzer.cs         静电杆接触状态机（手腕落区+持续时长+跨帧跟踪）
+├── EsdOverlayRenderer.cs         静电接触叠加绘制（OpenCV 原地矢量绘制）
+├── EsdAnalysisOptions.cs         ESD 参数（含 ROI 热更新入口）
+└── DoorMonitorAnalyzer.cs 等     门状态监测（基准比对/防抖/叠加绘制）
 ```
 
 ## 2. 环境要求（离线友好）
@@ -32,8 +48,8 @@ Detection/                        ← 整个目录复制走即可
 | --- | --- |
 | 框架 | 接入方任选：.NET Framework 4.7.2+ / .NET Core 2.0+ / .NET 5/6/7/8+ / Mono（类库多目标编译自动匹配） |
 | 平台 | 任意 CPU 架构由 native 库决定；Windows x64 已验证，Linux/macOS 需对应平台 OpenCV/OnnxRuntime native 库 |
-| NuGet | **无需**——托管依赖已 vendor 进 `Detection/libs/`（OpenCvSharp.dll、Microsoft.ML.OnnxRuntime.dll、SkiaSharp.dll 及 Span 支撑库），编译完全离线 |
-| native 运行库 | `Detection/libs/native/`（Windows + Linux 双平台共约 201MB）**已入 git**——克隆即完整，无需任何收集步骤 |
+| NuGet | **无需**——托管依赖已 vendor 进核心库 `Vision/Detection/libs/`（OpenCvSharp.dll、Microsoft.ML.OnnxRuntime.dll、SkiaSharp.dll 及 Span 支撑库），编译完全离线 |
+| native 运行库 | 核心库 `Vision/Detection/libs/native/`（Windows + Linux 双平台共约 201MB）**已入 git**——克隆即完整，无需任何收集步骤 |
 | 模型 | ONNX 格式 YOLO 模型文件（路径由调用方指定，模块不关心放哪里） |
 
 **平台能力矩阵（全平台能力一致，使用不变、效果不变）**：

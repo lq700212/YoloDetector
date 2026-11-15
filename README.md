@@ -15,7 +15,7 @@
 - **静电杆触摸检测**——YOLO-pose 人体关键点判定手腕是否落入静电杆区域并持续触摸；
 - **门状态检测**——关门基准比对自动识别"门被打开"并告警。
 
-`Detection/` 检测域是**可整体迁移的独立类库**（net472 + netstandard2.0 双目标、Windows/Linux native 运行库全部 vendor 入 git），整个目录复制到任何 .NET 项目即可接入目标检测能力。
+`Detection/` 检测域分两层：**通用检测核心**已沉淀到自有通用库仓库 [kaleidoscope](https://github.com/lq700212/kaleidoscope)（本仓库以 git submodule 引用，多目标 net472 + netstandard2.0、Windows/Linux native 运行库全部 vendor 入库，其他项目可独立接入），**业务检测层**（管道 + 静电触摸/门监测分析器）留在本仓库 `Detection/` 类库。
 
 <img width="1282" height="802" alt="运行效果（深色模式）：玻璃拟态界面" src="docs/images/screenshot-dark.png" />
 
@@ -32,7 +32,7 @@
 - ⚡ **静电杆触摸检测**（可选旁路）：YOLO-pose 手腕关键点 + 静电杆 ROI 规则——手腕进入标定区域并持续达到阈值时长即判定"正在触摸"，预览画面叠加黄色 ROI 框 / 接触状态 / 手腕落点；**ROI 支持预览画面上鼠标拖拽框选标定（实时生效并自动保存）**；判定纯几何规则完全可解释，ROI / 时长 / 容差全配置化，关闭后零开销
 - 🚪 **门状态检测**（可选旁路）：关门基准比对方案（无需训练模型）——标定门区域 + 采集关门基准图后，自动识别门开/关并日志告警；亮度归一化抗光照漂移、人体遮挡自动排除、1.5 秒防抖；支持拖拽标定与一键重设基准
 - 🖼️ **双可视化方案**：Skia 红框（YoloBuiltin）/ OpenCV 绿框（OpenCV），配置文件一键切换；绘制后端跨平台（Windows/Linux 效果一致）
-- 🧩 **检测模块可整体迁移**：`Detection/` 为独立类库（net472 + netstandard2.0 双目标），托管与 native 依赖（Windows + Linux）全部内置仓库，离线编译、整目录复制即接入（见 `docs/MODULE.md`）
+- 🧩 **检测核心可复用**：通用检测核心（检测器/帧源/接口/互转/可视化/ROI/日志）沉淀在 [kaleidoscope](https://github.com/lq700212/kaleidoscope) 的 `Vision/Detection/` 核心库（net472 + netstandard2.0 双目标，托管与 native 依赖 Windows + Linux 全部 vendor 入库，离线编译），本仓库经 submodule 引用；业务检测层（管道 + 静电触摸/门监测）留在本仓库 `Detection/`（见 `docs/MODULE.md` 与 kaleidoscope 的 `Vision/Detection/README.md`）
 - 🔌 **多品牌相机解耦**：`ICameraApi` 接口 + 工厂模式，当前内置安格华（ANGEHUA）实现，海康/大华可按同一模式扩展
 - 🎛️ **设备管理**：连接测试（TCP 探测带超时）、设备状态轮询（防重入）、RTSP 拉流 / RTMP 推流开关
 - 📋 **分级日志**：文件日志（logs/log_日期.txt）+ UI 日志面板；YOLO 详细日志与每帧结果日志独立开关，默认关闭防刷屏
@@ -49,7 +49,7 @@
 | Newtonsoft.Json 13.0.3 | 配置序列化（已 vendor，离线编译） |
 | WPF (PresentationFramework) | 界面层（net472 内置，零第三方 UI 库；主题字典 `UI/Themes/`） |
 
-> 全部依赖 DLL 均内置仓库 `Detection\libs\`（含 native 运行库，Windows 与 Linux 双平台共约 201MB），**编译与运行零 NuGet、零网络**——新机器 `git clone` 后直接构建即可。
+> 全部依赖 DLL 均内置仓库（含 native 运行库，Windows 与 Linux 双平台共约 201MB）：检测域依赖 vendor 在 kaleidoscope submodule 的 `Vision/Detection/libs/`，宿主自用依赖（Newtonsoft.Json）在主仓库 `libs\`，**编译与运行零 NuGet、零网络**——新机器 `git clone --recursive` 后直接构建即可。
 
 ## 架构
 
@@ -57,7 +57,7 @@
 graph LR
     UI["UI 层（WPF）<br/>MainWindow + 玻璃拟态主题字典"]
     APP["编排层 App<br/>VideoDetectionController / CameraController"]
-    DET["检测域 Detection【独立类库 YoloDetection】<br/>帧源 → 检测管道 → 后处理 → 可视化"]
+    DET["检测域 Detection【双层：核心在 kaleidoscope submodule + 业务层宿主类库】<br/>帧源 → 检测管道 → 后处理 → 可视化"]
     CAM["相机域 Cameras<br/>ICameraApi + 品牌实现 + 工厂"]
     INF["Infrastructure / Configuration<br/>文件日志 / 配置加载"]
 
@@ -69,7 +69,7 @@ graph LR
 ```
 
 - 依赖方向严格单向：`UI → App → Detection/Cameras → Infrastructure/Configuration`，严禁反向；UI 层只接触 SKBitmap/WriteableBitmap 与结果快照，禁止接触 OpenCV Mat
-- `Detection/` 编译为独立类库 `YoloDetector.Detection.dll`，禁止引用宿主业务命名空间（日志经委托注入、配置经方法参数注入），整目录复制到其他解决方案即可迁移
+- 检测域双层结构（v2.11）：`submodules/kaleidoscope/Vision/Detection/` 编译为通用核心类库 `Kaleidoscope.Detection.dll`（命名空间保持 `YoloDetection`，其他项目可独立复用）；宿主 `Detection/` 编译为业务类库 `YoloDetector.Detection.dll`（管道 + 静电触摸/门监测分析器，引用核心库）；两层均禁止引用宿主业务命名空间（日志经委托注入、配置经方法参数注入）
 
 ## 项目结构
 
@@ -77,8 +77,9 @@ graph LR
 YoloDetector/
 ├── UI/                     视图层（WPF）：App.xaml 入口 + MainWindow + Themes 玻璃拟态主题 + RoiSelectionImage 框选控件
 ├── App/                    编排层（视频检测控制器 / 相机连接控制器 / SKBitmap→WriteableBitmap 显示转换）
-├── Detection/              检测域【独立类库】：帧源 / 检测管道 / YOLO检测器 / 姿态检测器 / 静电接触分析 / 门监测 / 可视化器 / 后处理器
-│   ├── libs/               离线托管依赖（已入 git）+ libs/native/ 运行库（Windows/Linux 双平台）
+├── submodules/kaleidoscope git submodule：通用库仓库，检测通用核心在其 Vision/Detection/
+│   └── Vision/Detection/   【核心类库 Kaleidoscope.Detection.dll】YOLO检测器 / 姿态检测器 / 帧源 / 接口契约 / Mat↔SKBitmap 互转 / 可视化 / ROI框选 / 日志门面（libs 含托管+native 双平台依赖）
+├── Detection/              检测域业务层【独立类库 YoloDetector.Detection.dll】：检测管道 / 静电接触分析 / 门监测
 │   ├── yoloConfig.json     YOLO 运行参数
 │   ├── esdConfig.json      静电杆触摸检测参数
 │   ├── doorConfig.json     门状态检测参数
@@ -86,6 +87,7 @@ YoloDetector/
 ├── Cameras/                相机域：ICameraApi 抽象 + 品牌实现 + 工厂
 ├── Configuration/          配置层：AppConfig 加载器 + 配置模型
 ├── Infrastructure/         基础设施：文件日志
+├── libs/                   宿主自用 vendor 依赖（Newtonsoft.Json）
 ├── tools/                  collect-native.ps1（native 收集）/ download_pose_model.py（姿态模型下载）
 ├── appsettings.json        主配置（激活相机品牌）
 ├── cameraConfigs/*.json    各品牌相机参数
@@ -103,7 +105,11 @@ YoloDetector/
 ### 构建与运行（离线可用）
 
 ```powershell
-# 托管依赖与 native 运行库均已入 git，克隆即完整，无需联网
+# ★ 必须递归克隆（检测通用核心在 kaleidoscope submodule 内，依赖 DLL 已 vendor 入库，无需联网）
+git clone --recursive https://github.com/lq700212/YoloDetector.git
+# 已克隆未带 submodule 时补取：
+git submodule update --init --recursive
+
 dotnet build YoloDetector.csproj -v q
 ```
 

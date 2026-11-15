@@ -1,0 +1,3 @@
+[submodule "submodules/kaleidoscope"]
+	path = submodules/kaleidoscope
+	url = https://github.com/lq700212/kaleidoscope.git

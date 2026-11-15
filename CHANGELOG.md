@@ -2,6 +2,58 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.11（2026-11-16）YOLO 检测通用核心沉淀到 kaleidoscope 仓库（git submodule 方式）
+
+### 改动范围
+
+- **kaleidoscope 侧（源宿主动作）**：通用检测核心 19 个源文件沉淀为其 `Vision/Detection/` 核心库
+  （程序集 `Kaleidoscope.Detection.dll`，多目标 net472;netstandard2.0 保持，构建方式 dotnet build，
+  与 kaleidoscope 主库的 MSBuild 老式工程并存）——YOLO ONNX 检测器（YoloV26Detector）+ 姿态
+  检测器（YoloPoseDetector）、RTSP 帧源（RtspFrameCapturer 断流两层自愈）、检测域接口六件套
+  （IYoloDetector/IPoseDetector/IDetectionPipeline/IFrameSource/IDetectionVisualizer/
+  IDetectionResultProcessor 及后处理三实现）、Mat↔SKBitmap 互转（MatExtensions）、可视化双方案
+  （Visualizers/YoloBuiltinVisualizer）、ROI 框选 + Zoom 坐标换算（RoiSelectionState/ZoomMapping/
+  EsdRoiRect）、日志门面（LogManager）。依赖 vendor 全量随迁（托管 7 DLL + native 双平台约 201MB），
+  克隆即编译、运行全离线。**命名空间保持 `YoloDetection` 不改名**：同名命名空间跨程序集类型无缝
+  解析，宿主与测试代码零 using 改动。kaleidoscope 版本 V1.11.0，含模块接入指南
+  （Vision/Detection/README.md）与顶层 README/AGENTS/CHANGELOG 同步，已推送 GitHub。
+- **本仓库接入**：kaleidoscope 以 git submodule 方式挂载到 `submodules/kaleidoscope`（.gitmodules
+  入库）；克隆命令自此必须 `git clone --recursive`（或克隆后 `git submodule update --init --recursive`）。
+- **Detection 目录拆分（依赖方向决定）**：`Detection\` 目录只剩业务检测层——管道
+  `YoloDetectionService`（它直接引用 ESD/门业务分析器做可选旁路，依赖方向是管道→业务，
+  随业务留宿主）+ 静电触摸分析器组（EsdContactAnalyzer/EsdAnalysisOptions/EsdPersonStatus/
+  EsdContactChangedEventArgs/EsdOverlayRenderer/IEsdOverlayRenderer）+ 门监测分析器组
+  （DoorMonitorAnalyzer/DoorMonitorOptions/DoorFrameSnapshot/DoorOverlayRenderer/
+  IDoorOverlayRenderer）。`YoloDetector.Detection.csproj` 重写为业务类库（net472 单目标，
+  ProjectReference 指向 submodule 核心库 + OpenCvSharp HintPath 指向 submodule libs）。
+  运行配置（Detection\*.json）与模型（Detection\model\）是现场资产，**留在宿主不动**，
+  csproj 复制规则零变化。
+- **主项目 csproj**：新增两条 ProjectReference（submodule 核心库 + 业务类库）；**submodule
+  内容整体排除默认通配**（`Compile/None/Content Remove="submodules\**"`——SDK 默认通配会把
+  kaleidoscope 内全部 .cs 扫进主程序重复编译）；宿主自用依赖 Newtonsoft.Json 移到主项目
+  `libs\`（核心库不用它，SunnyUI 遗留 DLL 随 Detection\libs 清理一并移除）；OpenCvSharp/
+  OnnxRuntime/SkiaSharp/System.* 的 HintPath 统一改指 submodule libs（与核心库共用一份
+  vendor，防双处漂移）；native 运行库继续由核心库 csproj 的 None+Link 规则经 ProjectReference
+  流转到主 bin（实测传递复制生效）。
+- **harness**：`YoloDetector.Tests.csproj` 增加 Kaleidoscope.Detection.dll 引用（HintPath 主 bin），
+  182 个用例源码零改动（同名命名空间生效）；SKILL.md 对账表补 v2.11 路径变更说明
+  （12 个核心文件新位置映射）。
+- **验证**：kaleidoscope 独立编译双目标 0 error 0 warning；本仓库 `Run-AllTests` 全绿
+  （构建 + 182 用例 + GUI 冒烟退出码 0）；bin 完整性逐项核对（核心库/业务库 DLL、native
+  五件、两个 ONNX 模型、现场配置三 json——IncrementalClean 未误删）。
+
+### 为什么这么改
+
+用户要求把 YOLO 检测核心沉淀成跨项目可复用的库资产（kaleidoscope 是自有的工业上位机通用库
+仓库），并以 git submodule 方式让本 Demo 引用同一份代码，消除"复制一份进通用库"的双处漂移。
+拆分界线按依赖闭包划定：业务分析器（静电触摸/门监测）与管道留宿主——管道直接持有业务
+旁路引用，强行抽接口会改动检测线程循环结构（违反"重构不改可观察行为"铁律），收益仅是
+核心库多带一个管道，不值；其他项目复用时按 `IDetectionPipeline` 契约自行实现或参考宿主
+写法（kaleidoscope 模块 README 已写明）。注意：submodule 机制要求克隆者必须 `--recursive`，
+现场单独 checkout 本仓库不带 submodule 时构建会因缺核心库失败——已在 README 构建说明中
+标注。另外 kaleidoscope 的 173 用例验收体系不含 Vision 域，Vision 的行为回归由本仓库
+Run-AllTests 承担，两侧职责互补。
+
 ## v2.10.4（2026-11-15）运行日志字号/颜色/行距对齐设计稿（v2.10 目检反馈）
 
 ### 改动范围

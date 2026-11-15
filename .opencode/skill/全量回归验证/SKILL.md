@@ -14,6 +14,14 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 
 ## 模块覆盖对账表
 
+> **v2.11 路径变更说明**：通用检测核心已沉淀到 kaleidoscope 仓库（git submodule
+> `submodules\kaleidoscope`，程序集 Kaleidoscope.Detection.dll，命名空间仍为 YoloDetection）。
+> 下表 `Detection/` 路径中，以下 12 个文件实际位于 `submodules\kaleidoscope\Vision\Detection\`：
+> MatExtensions、IDetectionResultProcessor、Visualizers、YoloBuiltinVisualizer、YoloV26Detector、
+> YoloPoseDetector、PoseResult、EsdRoiRect、ZoomMapping、RoiSelectionState、RtspFrameCapturer、
+> LogManager；其余（YoloDetectionService/Esd*/Door* 业务层）仍在宿主 `Detection\`。
+> harness 经 `YoloDetector.Tests.csproj` 同时引用两个 DLL，测试源码零 using 改动。
+
 | 源文件 | 测试分区 |
 | --- | --- |
 | Configuration/AppConfig.cs、CameraConfig.cs、YoloConfig.cs、EsdConfig.cs、RoiJsonUpdater.cs | ConfigTests（含损坏回退/模板替换与null兜底/YoloConfig默认值/模型存在性/EsdConfig现场加载与ToOptions夹紧/UpdateRoiJson局部更新保留注释字段/非对象JSON返null/ApplyNormalizedRoi就地夹紧/DrawNoContactBoxes缺省false与透传） |

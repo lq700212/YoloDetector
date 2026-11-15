@@ -42,6 +42,13 @@
       <HintPath>..\..\..\..\bin\Debug\net472\YoloDetector.Detection.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- v2.11 起通用检测核心沉淀在 kaleidoscope submodule（Kaleidoscope.Detection.dll）：
+         DetectorTests/FrameSourceTests 等分区测的 YoloV26Detector/RtspFrameCapturer 等
+         类型在此程序集（命名空间仍为 YoloDetection，测试源码零 using 改动） -->
+    <Reference Include="Kaleidoscope.Detection">
+      <HintPath>..\..\..\..\bin\Debug\net472\Kaleidoscope.Detection.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="OpenCvSharp">
       <HintPath>..\..\..\..\bin\Debug\net472\OpenCvSharp.dll</HintPath>
       <Private>false</Private>

@@ -32,9 +32,9 @@ RTSP 网络摄像头接入 → OpenCV 逐帧捕获 → YOLO(ONNX) 推理检测�
 
 依赖方向：`UI → App → Detection/Cameras → Infrastructure/Configuration`，严禁反向。
 
-**程序集边界（模块化）**：`Detection/` 编译为独立类库 `YoloDetector.Detection.dll`（命名空间 `YoloDetection`，工程 `Detection/YoloDetector.Detection.csproj`），主程序经项目引用使用；该程序集**禁止引用宿主任何业务命名空间**，日志经 `LogManager.Initialize` 的委托注入、配置经方法参数注入——整个目录复制到其他解决方案即可迁移（接入指南：`docs/MODULE.md`）。主 csproj 中已 `<Compile Remove="Detection\**\*.cs">` 防止重复编译。
+**程序集边界（模块化，v2.11 双层）**：检测域为两个独立类库程序集（命名空间均 `YoloDetection`）——①通用核心库 `Kaleidoscope.Detection.dll` 沉淀在 kaleidoscope 仓库（本仓库经 git submodule 引用，工程 `submodules/kaleidoscope/Vision/Detection/Kaleidoscope.Detection.csproj`），可独立迁移复用；②宿主业务层 `YoloDetector.Detection.dll`（工程 `Detection/YoloDetector.Detection.csproj`，管道+静电触摸/门监测分析器，引用核心库）。两层均**禁止引用宿主任何业务命名空间**，日志经 `LogManager.Initialize` 的委托注入、配置经方法参数注入——核心库整目录复制到其他解决方案即可迁移（接入指南：`docs/MODULE.md` + kaleidoscope `Vision/Detection/README.md`）。主 csproj 中已 `<Compile Remove="Detection\**\*.cs">` 与 `<Compile Remove="submodules\**\*.cs">` 防止重复编译。
 
-**多目标与离线依赖**：类库双目标编译——`net472` 与 `netstandard2.0` **能力完全一致**（无条件编译差异）：位图后端统一 SkiaSharp（SKBitmap/Bgra8888 与 OpenCV BGRA 布局对齐，SIMD CvtColor + Buffer.MemoryCopy 整块拷贝），可视化与互转 API 全平台同源同效果；宿主显示层在 `App/SkBitmapExtensions.cs` 做一次 SKBitmap→Drawing.Bitmap 边界转换（类库内禁止 System.Drawing）。托管依赖与 native 运行库均已 vendor 入 git（`Detection/libs/` + `Detection/libs/native/`，Windows 与 Linux 双平台共约 201MB，最大单文件 libOpenCvSharpExtern.so 72MB < GitHub 100MB 限制），克隆即完整、编译运行全离线；`tools/collect-native.ps1` 仅在更换依赖版本后重新收集时使用。native 经类库 csproj 的 None+Link 规则平铺复制到输出目录（运行时 DllImport 按 exe 目录解析，.dll/.so 共存互不冲突）。
+**多目标与离线依赖**：核心库双目标编译——`net472` 与 `netstandard2.0` **能力完全一致**（无条件编译差异）：位图后端统一 SkiaSharp（SKBitmap/Bgra8888 与 OpenCV BGRA 布局对齐，SIMD CvtColor + Buffer.MemoryCopy 整块拷贝），可视化与互转 API 全平台同源同效果；宿主显示层在 `App/SkBitmapWpfExtensions.cs` 做一次 SKBitmap→WriteableBitmap 边界转换（类库内禁止 System.Drawing）。托管依赖与 native 运行库均已 vendor 入 kaleidoscope git（`Vision/Detection/libs/` + `Vision/Detection/libs/native/`，Windows 与 Linux 双平台共约 201MB，最大单文件 libOpenCvSharpExtern.so 72MB < GitHub 100MB 限制），`--recursive` 克隆即完整、编译运行全离线；`tools/collect-native.ps1` 仅在更换依赖版本后重新收集时使用（目标已指向 submodule）。native 经核心库 csproj 的 None+Link 规则平铺复制到输出目录（运行时 DllImport 按 exe 目录解析，.dll/.so 共存互不冲突）。
 
 ## 2. 线程模型（稳定性核心）
 

@@ -2,7 +2,9 @@
 # collect-native.ps1 — 检测模块 native 运行库收集脚本
 #
 # 作用：从本机 NuGet 全局缓存复制 OpenCV/OnnxRuntime/SkiaSharp 的
-#       native 库（Windows .dll + Linux .so）到 Detection\libs\native\。
+#       native 库（Windows .dll + Linux .so）到检测核心库的
+#       submodules\kaleidoscope\Vision\Detection\libs\native\
+#       （v2.11 起检测核心沉淀在 kaleidoscope submodule，vendor 依赖随迁）。
 #
 # 什么时候需要跑：
 #   - native 已随 git 分发，克隆即完整，日常无需执行
@@ -14,7 +16,7 @@
 
 $ErrorActionPreference = 'Stop'
 $nugetCache = Join-Path $env:USERPROFILE '.nuget\packages'
-$destDir = Join-Path $PSScriptRoot '..\Detection\libs\native'
+$destDir = Join-Path $PSScriptRoot '..\submodules\kaleidoscope\Vision\Detection\libs\native'
 
 # Windows native：包名 / 版本 / 包内文件（runtimes\win-x64\native\）
 $winItems = @(
