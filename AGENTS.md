@@ -85,7 +85,13 @@ YoloDetector/
   - **WPF 无 `TextBox.Lines`**：日志 500 行裁剪自行计数行数（`MainWindow._logLineCount`），并在用户上翻时不强拉回底部；
   - **XAML 注释禁 `--`**：XML 注释里写 `<!-- ---------- xxx ---------- -->` 装饰线会 MC3000 编译失败，用 `====` 代替；
   - **胶囊形状铁律：CornerRadius = 高度的一半，禁止写 999**（v2.10.1 实测踩坑）：CSS 的 `border-radius:999px` 浏览器会**逐角独立 clamp**（宽>高时退化为正胶囊：两端半圆端帽+直边），WPF 的 `Border.CornerRadius` 过大时却**按比例整体缩小**（宽 94×高 34 的元素四角联动压缩），整条边都弯掉呈**蛋形**。正确写法：固定 Height（如 34）+ CornerRadius=Height/2（17）；高度随内容变的（如状态徽标）必须固定 Height 再取一半。−/+ 圆形小按钮模板 `RoundIconTemplate` 同理（圆角 17 在 30×30 上 clamp 成正圆、30×34 上贴合胶囊端帽）；
-  - 界面视觉验证套路：`desktop_launch` 启动 bin 下 exe → `desktop_screenshot`(window_id) 截图 → read 工具目检；**与 `design/风格提案.html` 设计稿逐项并排对比**（用户要求一比一还原，改布局/配色后必须两边截图对照）。
+  - 界面视觉验证套路：`desktop_launch` 启动 bin 下 exe → `desktop_screenshot`(window_id) 截图 → read 工具目检；**与 `design/风格提案.html` 设计稿逐项并排对比**（用户要求一比一还原，改布局/配色后必须两边截图对照）；
+  - **同行按钮对齐：行间距放容器外，禁止在 UniformGrid/同容器内用不对称上边距隔行**（v2.10.2 实测踩坑）：四颗按钮挤一个 `UniformGrid` 时，给第二行按钮加 `Margin="0,8,0,0"` 隔行会把单元格撑高（36→44），同行没有上边距的另一颗按 Stretch 在格子里**居中下坠 4px**——同行按钮上下错位。正确姿势：每行一个 `UniformGrid`，行间距放外层 `Margin="0,8,0,0"`，同行按钮只留对称的左间距。改完用 desktop_snapshot(include_bounds) 比对同行控件 y 值验证；
+  - **无边框窗口（v2.10.2，WindowStyle=None + WindowChrome）约定（改窗口外壳前必读）**：
+    - 主窗口已移除系统标题栏：`WindowStyle="None"` + net472 内置 `System.Windows.Shell.WindowChrome`（xmlns `shell`）。CaptionHeight=62 = 顶栏玻璃条高度，顶栏空白即"标题区"（拖动/双击最大化/贴边分屏原生模拟），ResizeBorderThickness=6 边缘缩放热区，GlassFrameThickness 必须为 0（否则顶部残留透明系统框）；
+    - **标题区内交互控件必须 `shell:WindowChrome.IsHitTestVisibleInChrome="True"`**，否则点击被 WindowChrome 当成拖动标题栏吞掉（无边框改造最经典翻车点）；纯展示元素（logo/状态徽标）故意不声明 = 拖动热区。harness 用例 `UI-无边框窗口WindowChrome配置` 已锁死此配置，改动后跑全量回归防回退；
+    - **WindowChrome 最大化默认盖任务栏（desktop 实测最大化 bounds = 屏幕 1920×1080+14，探出 7px/边）**：其内置 WM_GETMINMAXINFO 处理按整个显示器而非工作区计算。修复 = `MainWindow.OnSourceInitialized` 追加窗口过程钩子把最大化目标改写为工作区（`AdjustMaximizedBounds`，handled=true 阻止 DefWindowProc 覆盖），修复后最大化 bounds 恰为工作区、任务栏可见。改窗口外壳代码时勿删此钩子；
+    - **验证探针坑**：desktop 工具 headless 模式禁物理点击；`PostMessage(WM_LBUTTONDOWN)` 合成鼠标消息对 WPF 完全无效（对照实验：非标题区按钮也不响应、不获焦）——命中测试类行为无法在 headless 下真实验证，只能靠配置断言（harness 用例）+ 用户真实点击兜底。UIA semantic click（InvokePattern）走无障碍通道，绕过 WPF 命中测试，测不出"点击被吞成拖动"这类问题。
 
 ## 并发与资源管理红线（本项目核心特色，均为实测踩坑沉淀）
 

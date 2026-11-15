@@ -186,7 +186,7 @@ namespace YoloDetector.Tests
             LogManagerTests.RunAll();           // 日志门面开关（复位全局状态）
             LoggerTests.RunAll();               // 文件日志契约（Close 后进程内日志静默，须在 UI 冒烟前）
             RoiSelectionTests.RunAll();         // ROI 拖拽标定纯逻辑（Zoom 坐标换算 + 框选状态机）
-            UiSmokeTests.RunAll();              // MainWindow WPF 构造/显示/关闭冒烟（含 App 级主题资源加载）
+            UiSmokeTests.RunAll();              // 无边框窗口 WindowChrome 配置 + MainWindow WPF 构造/显示/关闭冒烟（含 App 级主题资源加载）
 
             int fails = T.Finish();
 

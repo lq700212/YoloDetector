@@ -2,6 +2,22 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.10.2（2026-11-15）移除系统标题栏改自绘窗口控制（v2.10 目检反馈）
+
+### 改动范围
+
+- **系统标题栏整体移除**：`MainWindow.xaml` `WindowStyle=None` + net472 内置 `System.Windows.Shell.WindowChrome`（CaptionHeight=62 顶栏玻璃条即标题区：空白处拖动窗口/双击最大化/贴边分屏；ResizeBorderThickness=6 边缘缩放热区；GlassFrameThickness=0 无 DWM 玻璃帧）。纯 WindowStyle=None 会彻底丢拖动/缩放，WindowChrome 把这些行为模拟回来。
+- **顶栏自绘窗口三钮**（标题区右侧、◐ 主题钮之后，Margin=16 间隔；30×30 圆钮沿用 `RoundIconButton` 语言，图标矢量 Path 随按钮 Foreground 联动变色）：最小化 `btnMinWindow`、最大化/还原 `btnMaxWindow`（图标随 `Window_StateChanged` 切换单框/双框）、关闭 `btnCloseWindow`（新增 `WindowCloseButton` 样式：hover 红色警示 = DangerBrush/DangerGlowBrush，深浅主题自动适配）。点击行为极简：WindowState 赋值 / `Close()`（走既有 Window_Closed 五步清理链，与系统关闭键一致）。
+- **标题区命中声明**：顶栏交互控件（txtIp/txtStreamUrl/通道 stepper/btnTheme/窗口钮组）显式 `WindowChrome.IsHitTestVisibleInChrome=True`——不声明的话点击会被 WindowChrome 当成"拖动标题栏"吞掉；logo 与状态徽标故意不声明，留作拖动热区（与系统标题栏行为一致）。
+- **流地址框限宽**：`txtStreamUrl` 由 flex 拉伸（ColumnSpan 全宽 ~648px）改为 `Width=420 MaxWidth=420` 左对齐，剩余宽度沉到新增的 `*` 间隙列（列布局 6→8 列）——用户要求"宽度缩小点"。
+- **左栏同行按钮对齐修复（v2.10.2 目检追加）**：`UniformGrid` 四颗按钮里"开启拉流"用 `Margin="0,8,0,0"` 隔行、"开启推流"只有左边距——单元格被拉流的上边距撑高（36→44），推流按 Stretch 在格子里居中下坠 4px，同行两颗按钮上下错位（desktop 实测拉流 y=341 / 推流 y=337）。修复：拆成两个 `UniformGrid`（预览/停止 + 拉流/推流），行间距改放外层 `Margin="0,8,0,0"`，同行按钮只留对称左间距 8；复测拉流/推流 y=333/333 完全平齐。已全窗扫描确认无其他"同行控件不对称上边距"模式（其余上边距均在独立成行的控件上）。
+- **最大化盖任务栏修复（实测踩坑）**：WindowChrome 对 WM_GETMINMAXINFO 的默认处理把最大化尺寸扩到**整个显示器**（desktop 实测 bounds=1934×1094@(-7,-7)，屏幕 1920×1080 → 底部盖住任务栏）。修复：`OnSourceInitialized` 追加窗口过程钩子，把最大化目标改写为显示器**工作区**（`AdjustMaximizedBounds` + Win32 MINMAXINFO/MONITORINFO）；复测最大化 bounds=1920×1040 恰为工作区，任务栏完整可见、内容无裁剪。
+- **测试沉淀**：harness 新增 `UI-无边框窗口WindowChrome配置` 用例（WindowStyle/CaptionHeight/ResizeBorderThickness/GlassFrameThickness 配置断言 + 标题区交互控件 IsHitTestVisibleInChrome 逐个断言 + 徽标反向断言锁"拖动热区"）。**用例总数 181 → 182**；Run-AllTests 全绿 + GUI 冒烟通过。
+
+### 为什么这么改
+
+用户对照截图反馈：白色系统标题栏与玻璃拟态主题风格割裂很丑，要求移除；三颗窗口控制键下放到顶栏深浅主题切换钮右侧并间隔一段距离；中间流地址栏过宽要求缩窄。选择 WindowChrome 而非手写拖动/缩放，是因为它原生模拟标题区拖动、双击最大化、Aero Snap 贴边分屏、拖动还原跟随等细节，手写难以对齐原生手感。最大化盖任务栏是 WindowChrome 已知行为（其默认 WM_GETMINMAXINFO 按显示器而非工作区计算），经 WM_GETMINMAXINFO 钩子按工作区改写修复，坑位已沉淀进 AGENTS.md「WPF 玻璃拟态界面约定」。
+
 ## v2.10.1（2026-11-15）修复顶栏/左栏胶囊控件呈蛋形的问题（v2.10 目检反馈）
 
 ### 改动范围

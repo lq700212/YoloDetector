@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
@@ -757,6 +759,151 @@ namespace YoloDetector.UI
                     $"☆帧#{count}: 0个目标(阈值={AppConfig.Yolo.ConfidenceThreshold})");
             }
         }
+
+        // ============================================================
+        // 自绘窗口控制（系统标题栏已移除：WindowStyle=None + WindowChrome）
+        //   拖动/双击最大化/贴边分屏/边缘缩放由 WindowChrome 原生模拟，
+        //   这里只负责三个按钮的最小行为集 + 最大化/还原图标切换。
+        // ============================================================
+
+        /// <summary>最小化窗口（自绘按钮，替代系统标题栏最小化键）</summary>
+        private void btnMinWindow_Click(object sender, RoutedEventArgs e)
+        {
+            WindowState = WindowState.Minimized;
+        }
+
+        /// <summary>最大化/还原切换（自绘按钮；图标随 Window_StateChanged 同步）</summary>
+        private void btnMaxWindow_Click(object sender, RoutedEventArgs e)
+        {
+            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        }
+
+        /// <summary>
+        /// 关闭窗口：直接 Close()，走 Closing/Closed 既有清理链
+        /// （Window_Closed 五步顺序 + App.OnExit 幂等兜底，与系统关闭键完全一致）。
+        /// </summary>
+        private void btnCloseWindow_Click(object sender, RoutedEventArgs e)
+        {
+            Close();
+        }
+
+        /// <summary>
+        /// 窗口状态变化（含双击标题区/贴边分屏等 WindowChrome 触发的路径）：
+        /// 同步最大化/还原两枚图标 + 按钮提示，保证任何路径改状态后图标都正确。
+        /// </summary>
+        private void Window_StateChanged(object sender, EventArgs e)
+        {
+            bool maximized = WindowState == WindowState.Maximized;
+            iconMaximize.Visibility = maximized ? Visibility.Collapsed : Visibility.Visible;
+            iconRestore.Visibility = maximized ? Visibility.Visible : Visibility.Collapsed;
+            btnMaxWindow.ToolTip = maximized ? "还原" : "最大化";
+        }
+
+        // ============================================================
+        // 无边框窗口最大化修正（WM_GETMINMAXINFO，实测踩坑沉淀）
+        //   现象：WindowChrome 对 WM_GETMINMAXINFO 的默认处理把最大化尺寸
+        //   扩到整个显示器（desktop 实测最大化 bounds = 1934×1094 @(-7,-7)，
+        //   屏幕 1920×1080）——底部盖住任务栏，四周探出的 7px 藏缩放热区。
+        //   修复：追加窗口过程钩子，把最大化目标改写为显示器工作区
+        //   （不含任务栏）。WindowChrome 的探出逻辑基于该值继续生效，
+        //   客户区基本贴合工作区（顶部探出的几像素为顶栏背景条，无感）。
+        // ============================================================
+
+        private const int WM_GETMINMAXINFO = 0x0024;
+        private const uint MONITOR_DEFAULTTONEAREST = 2;
+
+        /// <summary>句柄创建后挂窗口过程钩子（WindowChrome 的钩子先注册，本钩子后写入值生效）</summary>
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            var source = (HwndSource)PresentationSource.FromVisual(this);
+            if (source != null)
+            {
+                source.AddHook(WndProc);
+            }
+        }
+
+        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == WM_GETMINMAXINFO)
+            {
+                AdjustMaximizedBounds(hwnd, lParam);
+                handled = true; // 阻止 DefWindowProc 用显示器全尺寸覆盖我们写入的工作区值
+            }
+            return IntPtr.Zero;
+        }
+
+        /// <summary>把最大化尺寸/位置改写为最近显示器的"工作区"（任务栏以外的区域）</summary>
+        private void AdjustMaximizedBounds(IntPtr hwnd, IntPtr lParam)
+        {
+            var mmi = (MINMAXINFO)Marshal.PtrToStructure(lParam, typeof(MINMAXINFO));
+
+            IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            if (monitor == IntPtr.Zero)
+            {
+                return;
+            }
+
+            var info = new MONITORINFO();
+            info.cbSize = Marshal.SizeOf(info);
+            if (!GetMonitorInfo(monitor, ref info))
+            {
+                return;
+            }
+
+            // 最大化目标 = 工作区；ptMaxPosition 相对显示器原点
+            // （任务栏在底部时 work.top == monitor.top → 0；在顶部/侧边也正确）
+            mmi.ptMaxSize.x = info.rcWork.right - info.rcWork.left;
+            mmi.ptMaxSize.y = info.rcWork.bottom - info.rcWork.top;
+            mmi.ptMaxPosition.x = info.rcWork.left - info.rcMonitor.left;
+            mmi.ptMaxPosition.y = info.rcWork.top - info.rcMonitor.top;
+
+            Marshal.StructureToPtr(mmi, lParam, true);
+        }
+
+        // ---- Win32 互操作（仅最大化修正使用）----
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int x;
+            public int y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT
+        {
+            public int left;
+            public int top;
+            public int right;
+            public int bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MINMAXINFO
+        {
+            public POINT ptReserved;
+            public POINT ptMaxSize;
+            public POINT ptMaxPosition;
+            public POINT ptMinTrackSize;
+            public POINT ptMaxTrackSize;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MONITORINFO
+        {
+            public int cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public int dwFlags;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+        [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
         // ============================================================
         // 主题切换（深色 ↔ 浅色）

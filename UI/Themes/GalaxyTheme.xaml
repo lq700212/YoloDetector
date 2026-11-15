@@ -208,6 +208,18 @@
         </Style.Triggers>
     </Style>
 
+    <!-- 窗口关闭钮（自绘窗口控制三钮之一，替代系统标题栏）：基于 RoundIconButton，
+         仅把 hover 语义改为红色警示——红色系画刷经 DynamicResource 引用调色板，
+         深浅主题自动适配（关窗=危险操作，沿用 CSS 生态对 .win-close 的红色惯例） -->
+    <Style x:Key="WindowCloseButton" TargetType="Button" BasedOn="{StaticResource RoundIconButton}">
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                <Setter Property="Background" Value="{DynamicResource DangerGlowBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- ============ 输入 ============ -->
 
     <!-- 玻璃输入框：圆角 9 + 半透明底 + 水印（水印文字放 Tag 属性；CSS .m-input + .ph） -->

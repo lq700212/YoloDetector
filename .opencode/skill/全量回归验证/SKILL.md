@@ -1,6 +1,6 @@
 ﻿---
 name: "全量回归验证"
-description: "YoloDetector 一键全量回归验证：构建主项目、运行 181 个进程内回归用例（配置含EsdConfig与ROI标定写回/YoloConfig与URL兜底/Mat互转/WPF宿主位图转换/后处理/可视化器/YOLO检测器过滤与NMS与双布局解析/姿态检测器/静电接触分析器与叠加渲染/门状态监测/检测管道线程协议与ESD降频与门旁路/帧源/端到端含ESD与门降级/相机客户端与设备状态/日志门面异常隔离与文件日志并发/UI坐标换算与框选状态机/WPF主窗口构造）+ GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
+description: "YoloDetector 一键全量回归验证：构建主项目、运行 182 个进程内回归用例（配置含EsdConfig与ROI标定写回/YoloConfig与URL兜底/Mat互转/WPF宿主位图转换/后处理/可视化器/YOLO检测器过滤与NMS与双布局解析/姿态检测器/静电接触分析器与叠加渲染/门状态监测/检测管道线程协议与ESD降频与门旁路/帧源/端到端含ESD与门降级/相机客户端与设备状态/日志门面异常隔离与文件日志并发/UI坐标换算与框选状态机/WPF主窗口构造/无边框窗口WindowChrome配置）+ GUI 冒烟测试。触发场景：交付前验证、改动检测链路或线程代码后的回归、新增功能后补测试用例。脚本为主：人工运行 Run-AllTests.ps1 即可完成，AI 负责代跑、分析失败原因并修复。"
 ---
 
 # 全量回归验证
@@ -36,7 +36,7 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 | Cameras/AngehuaCameraApiClient.cs、DeviceStatus.cs | AngehuaClientTests（快速失败/有界超时/桩契约/流地址三占位符/使用率计算） |
 | Detection/LogManager.cs | LogManagerTests（三通道独立开关/UI送达与清除/双通道异常隔离/null通道保持语义） |
 | Infrastructure/Logging/Logger.cs | LoggerTests（惰性初始化/并发写入/Close 幂等与静默） |
-| UI/App.xaml(.cs)、UI/MainWindow.xaml(.cs)、UI/Themes/ | UiSmokeTests（STA 构造冒烟：进程内构造 Application 合并主程序集主题字典 + MainWindow 构造/显示/关闭）+ Invoke-SmokeTest.ps1（真进程 GUI 冒烟） |
+| UI/App.xaml(.cs)、UI/MainWindow.xaml(.cs)、UI/Themes/ | UiSmokeTests（STA 构造冒烟：进程内构造 Application 合并主程序集主题字典 + 无边框窗口 WindowChrome 配置断言 + MainWindow 构造/显示/关闭）+ Invoke-SmokeTest.ps1（真进程 GUI 冒烟） |
 
 未覆盖边界（说明原因）：MainWindow 的 private 交互方法（按钮事件/日志裁剪）需真实 UI 交互驱动，
 由进程级 GUI 冒烟整体兜底；CameraApiFactory 的 HIK/DAHUA 回退分支依赖静态现场配置无法注入，
@@ -74,7 +74,7 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
     ├── LogManagerTests.cs        日志门面三通道独立开关
     ├── LoggerTests.cs            文件日志契约（Close 后进程内日志静默，须在 UI 冒烟前）
     ├── RoiSelectionTests.cs      ROI 拖拽标定纯逻辑（Zoom 坐标换算 + 拖拽端到端换算 + 框选状态机，测的是类库 RoiSelectionState/ZoomMapping）
-    └── UiSmokeTests.cs           MainWindow WPF 构造/显示/关闭（STA + Dispatcher 推进 + App 级主题资源，必须最后跑）
+    └── UiSmokeTests.cs           无边框窗口 WindowChrome 配置 + MainWindow 构造/显示/关闭（STA + Dispatcher 推进 + App 级主题资源，必须最后跑）
 ```
 
 ## 执行
@@ -88,7 +88,7 @@ powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scr
 powershell -ExecutionPolicy Bypass -File ".opencode\skill\全量回归验证\scripts\Invoke-SmokeTest.ps1"
 ```
 
- 预期：harness 输出 `汇总: PASS=181 FAIL=0`；GUI 冒烟 `[SMOKE] 结果: 全部通过`；总退出码 0。
+ 预期：harness 输出 `汇总: PASS=182 FAIL=0`；GUI 冒烟 `[SMOKE] 结果: 全部通过`；总退出码 0。
  耗时参考：全程约 2~3 分钟（其中 RTSP 拒绝连接与不可达地址用例固定消耗约 30 秒，是 FFmpeg/TCP 内部超时的固有行为）。
 
 ## 新增测试用例的固定流程（AI 必须遵守）

@@ -29,7 +29,64 @@ namespace YoloDetector.Tests
     {
         public static void RunAll()
         {
+            // 顺序：ChromelessWindowConfig 也要关窗口（会触发 Logger.Close），
+            // 必须都排在 LoggerTests 之后、且本分区内部保持"配置断言 → 生命周期"次序
+            T.Case("UI-无边框窗口WindowChrome配置", ChromelessWindowConfig);
             T.Case("UI-MainWindow构造显示关闭全流程", MainWindowLifecycle);
+        }
+
+        /// <summary>
+        /// 无边框窗口（WindowStyle=None + WindowChrome）配置回归（v2.10.2 沉淀）：
+        ///   系统标题栏已移除，窗口外壳行为全部压在 WindowChrome 配置上——
+        ///   CaptionHeight 被误改会丢"顶栏空白拖动/双击最大化"，ResizeBorderThickness
+        ///   被误改会丢边缘缩放；而顶栏交互控件漏配 IsHitTestVisibleInChrome 是
+        ///   无边框改造最经典的翻车点：点击输入框/按钮会被 WindowChrome 当成
+        ///   "拖动标题栏"吞掉（UIA/InvokePattern 探针测不到，只能靠配置断言锁死）。
+        /// </summary>
+        private static void ChromelessWindowConfig()
+        {
+            EnsureWpfApplication();
+
+            var window = new MainWindow();
+            try
+            {
+                window.Show();
+                DoEvents();
+
+                T.True(window.WindowStyle == WindowStyle.None, "WindowStyle 应为 None（无系统标题栏）");
+
+                var chrome = System.Windows.Shell.WindowChrome.GetWindowChrome(window);
+                T.True(chrome != null, "应挂 WindowChrome（无边框窗口外壳）");
+                if (chrome != null)
+                {
+                    T.True(chrome.CaptionHeight == 62, "CaptionHeight 应=顶栏玻璃条高度 62");
+                    T.True(chrome.ResizeBorderThickness.Left == 6, "ResizeBorderThickness 应=6（边缘缩放热区）");
+                    T.True(chrome.GlassFrameThickness.Left == 0, "GlassFrameThickness 应=0（无 DWM 玻璃帧）");
+                }
+
+                // 标题区内的交互控件必须声明 IsHitTestVisibleInChrome=True，
+                // 否则点击被 WindowChrome 转成拖动窗口（logo/状态徽标故意不声明=拖动热区）
+                // 窗口钮三键的标记在容器 pnlWindowButtons 上（命中测试沿可视树向上遍历生效）
+                foreach (var name in new[] { "txtIp", "txtStreamUrl", "btnTheme", "pnlWindowButtons" })
+                {
+                    var fe = window.FindName(name) as FrameworkElement;
+                    T.True(fe != null, "控件存在: " + name);
+                    if (fe != null)
+                    {
+                        T.True(System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(fe),
+                               "标题区内控件应可命中: " + name);
+                    }
+                }
+
+                var badge = window.FindName("badgeStatus") as FrameworkElement;
+                T.True(badge != null && !System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(badge),
+                       "状态徽标应保持 False（留作标题区拖动热区）");
+            }
+            finally
+            {
+                window.Close();
+                DoEvents();
+            }
         }
 
         private static void MainWindowLifecycle()
