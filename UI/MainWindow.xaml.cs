@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
@@ -68,14 +69,51 @@ namespace YoloDetector.UI
         private int _logLineCount;
         private const int MaxLogLines = 500;
 
+        // ============================================================
+        // 圆角窗口框架（v2.10.3，照设计稿 .mock 的 border-radius:14px + overflow:hidden）
+        //   窗口本体透明 + 内容包在 rootFrame（14px 圆角 Border）里，视觉圆角
+        //   由这层 Border 提供；光斑 Ellipse 刻意负 Margin 溢出窗口，必须给
+        //   rootFrame 设置圆角矩形 Clip 才等效设计稿的 overflow:hidden。
+        //   最大化时圆角清零（贴满工作区不留透明角），还原时恢复。
+        // ============================================================
+
+        /// <summary>窗口圆角半径（与设计稿 .mock 的 border-radius:14px 一致）</summary>
+        private const double WindowCornerRadius = 14;
+
+        /// <summary>复用的裁剪几何（窗口拖拽缩放时 SizeChanged 高频触发，避免反复分配）</summary>
+        private readonly RectangleGeometry _frameClip = new RectangleGeometry
+        {
+            RadiusX = WindowCornerRadius,
+            RadiusY = WindowCornerRadius
+        };
+
         public MainWindow()
         {
             InitializeComponent();
+
+            // 圆角裁剪：rootFrame 尺寸变化（首帧布局/拖拽缩放/最大化）时同步 Clip；
+            // geometry 实例跨次复用，只改 Rect，避免高频分配。
+            rootFrame.SizeChanged += (s, e) => UpdateFrameClip();
 
             // 输入框初值（与 WinForms 版 InitializeComponent 一致：来自运行配置）
             txtIp.Text = AppConfig.Current.Connection.DefaultIp;
             txtStreamUrl.Text = AppConfig.Current.Stream.GetRtspUrl(
                 AppConfig.Current.Connection.DefaultIp, 0);
+        }
+
+        /// <summary>
+        /// 同步 rootFrame 的圆角矩形裁剪（等效设计稿 overflow:hidden）。
+        /// 半径来源：最大化时圆角已清零（半径 0），还原态用设计稿的 14px——
+        /// 这样 Clip 与 Border.CornerRadius 始终一致，不会出现"背景是圆角、
+        /// 内容直角溢出"或反向的错位。
+        /// </summary>
+        private void UpdateFrameClip()
+        {
+            double radius = WindowState == WindowState.Maximized ? 0 : WindowCornerRadius;
+            _frameClip.Rect = new Rect(0, 0, rootFrame.ActualWidth, rootFrame.ActualHeight);
+            _frameClip.RadiusX = radius;
+            _frameClip.RadiusY = radius;
+            rootFrame.Clip = _frameClip;
         }
 
         /// <summary>窗口加载（对应 WinForms OnShown：句柄/界面就绪后再记录启动提示）</summary>
@@ -789,7 +827,9 @@ namespace YoloDetector.UI
 
         /// <summary>
         /// 窗口状态变化（含双击标题区/贴边分屏等 WindowChrome 触发的路径）：
-        /// 同步最大化/还原两枚图标 + 按钮提示，保证任何路径改状态后图标都正确。
+        /// 同步最大化/还原两枚图标 + 按钮提示，保证任何路径改状态后图标都正确；
+        /// 并联动圆角窗口框架——最大化时清零圆角（贴满工作区不留透明角），
+        /// 还原时恢复 14px（与 UpdateFrameClip 一起成对生效）。
         /// </summary>
         private void Window_StateChanged(object sender, EventArgs e)
         {
@@ -797,6 +837,11 @@ namespace YoloDetector.UI
             iconMaximize.Visibility = maximized ? Visibility.Collapsed : Visibility.Visible;
             iconRestore.Visibility = maximized ? Visibility.Visible : Visibility.Collapsed;
             btnMaxWindow.ToolTip = maximized ? "还原" : "最大化";
+
+            // 圆角窗口框架联动：最大化清零圆角 + 同步 Clip；
+            // 还原态重新应用 14px 圆角（SizeChanged 可能不触发——尺寸恰未变时）
+            rootFrame.CornerRadius = new CornerRadius(maximized ? 0 : WindowCornerRadius);
+            UpdateFrameClip();
         }
 
         // ============================================================

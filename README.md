@@ -122,7 +122,7 @@ dotnet build YoloDetector.csproj -v q
 
 | 文件 | 作用 |
 | --- | --- |
-| `appsettings.json` | 全局配置，`ActiveCameraConfig` 字段切换激活的品牌 |
+| `appsettings.json` | 全局配置，`ActiveCameraConfig` 字段切换激活的品牌；`ForceSoftwareRendering` 控制渲染模式（`null`=自动：检测到 UU远程/向日葵/ToDesk 等远程控制软件时切软件渲染，修复远程画面双指针；`true`/`false`=强制软件/硬件渲染） |
 | `cameraConfigs\{品牌}.json` | 该品牌的 IP 默认值、连接超时、RTSP 端口/地址模板、最大通道数 |
 | `Detection\yoloConfig.json` | 模型路径、置信度/NMS 阈值、可视化方案、调试日志开关 |
 | `Detection\esdConfig.json` | 静电杆触摸检测开关、姿态模型路径、ROI 标定、判定时序（见下） |

@@ -43,8 +43,9 @@
         Title="YOLO 实时人员检测系统"
         Width="1280" Height="800" MinWidth="1160" MinHeight="740"
         WindowStyle="None"
+        AllowsTransparency="True"
         WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource BgGradientBrush}"
+        Background="Transparent"
         FontFamily="Bahnschrift, Microsoft YaHei"
         Loaded="Window_Loaded"
         StateChanged="Window_StateChanged"
@@ -71,6 +72,21 @@
                             UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
 
+    <!-- 圆角窗口框架（v2.10.3，照设计稿 .mock 的 border-radius:14px + overflow:hidden）：
+         Win10 下 WPF 窗口要做"真圆角"必须走分层窗口：AllowsTransparency=True +
+         窗口本体 Background=Transparent（四角透出桌面），视觉全部由这层
+         14px 圆角 Border 提供。WindowChrome 的 CornerRadius 属性只影响非客户区
+         计算不产生视觉圆角，故保持 0。两个联动点：
+         1) rootFrame.SizeChanged 在 code-behind 同步设置圆角矩形 Clip——
+            光斑 Ellipse 用负 Margin 刻意溢出窗口，等效设计稿的 overflow:hidden；
+         2) Window_StateChanged 在最大化时把圆角清零（贴满工作区不留透明角），
+            还原时恢复 14px。
+         注意：AllowsTransparency 会强制整个窗口走软件渲染（WPF 分层窗口特性），
+         这与 SoftwareRenderingPolicy 的远程串流修复叠加后，UU远程/向日葵等
+         远程环境下 WPF 不再产生 D3D 高频呈现，双指针问题得到双重保险。 -->
+    <Border x:Name="rootFrame"
+            CornerRadius="14"
+            Background="{DynamicResource BgGradientBrush}">
     <Grid>
         <!-- 背景光斑（两个大椭圆 Radial 渐变，等效设计稿 CSS blur(90px) 光斑；
              静态渲染一次，不参与命中测试） -->
@@ -438,4 +454,5 @@
             </Grid>
         </Grid>
     </Grid>
+    </Border>
 </Window>

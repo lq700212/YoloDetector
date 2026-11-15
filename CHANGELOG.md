@@ -2,6 +2,19 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.10.3（2026-11-15）修复远程串流双指针 + 窗口整体圆角
+
+### 改动范围
+
+- **远程串流双指针修复（`App/SoftwareRenderingPolicy.cs` 新增）**：用户经网易 UU远程（GameViewer）远程操作本机时，YoloDetector（WPF，milcore 走 D3D 硬件渲染）一启动，远程画面就出现两个鼠标指针——一个实时跟手（控制端本地指针）、一个滞后残影（远程软件把指针合成进捕获帧）；软件关闭后恢复。根因：远程串流软件检测到被控端出现 D3D 高频呈现进程后切到"游戏/高性能采集"路径，画面光标改由远程软件合成进捕获帧（跟帧率、天然滞后），而控制端又画一个实时本地指针 → 双指针。修复：检测到远程控制软件进程（UUremote/向日葵/ToDesk/RustDesk/TeamViewer/AnyDesk/贝锐系）在运行时，把 WPF 切到软件渲染（`RenderOptions.ProcessRenderMode=SoftwareOnly`，milcore 不再 D3D 呈现，远程软件回到普通桌面采集路径）。
+- **渲染模式配置项**：`appsettings.json` 新增 `ForceSoftwareRendering`（`null`=自动检测远程控制软件（缺省）/`true`=强制软件渲染/`false`=强制硬件渲染，现场排查用）；配置模型加在 `CameraConfig`（appsettings.json 反序列化目标），由 `AppConfig.Load()` 摘存到静态属性 `AppConfig.ForceSoftwareRendering`（`_current` 单例实际来自 cameraConfigs/{品牌}.json，全局字段必须单独摘出）；决策接线在 `App.OnStartup` 首个窗口创建前（进程级设置影响后续所有渲染），决策失败按默认硬件渲染继续、不阻断启动。
+- **窗口整体圆角（照设计稿 `.mock` 的 `border-radius:14px + overflow:hidden`）**：Win10 下 WPF 真圆角必须走分层窗口三件套——`MainWindow.xaml` 窗口本体 `AllowsTransparency="True" + Background="Transparent"`（四角透出桌面）+ 内容包进 `rootFrame`（14px 圆角 Border，背景用原 `BgGradientBrush`）；`rootFrame.SizeChanged` 同步复用的圆角矩形 `RectangleGeometry` Clip（裁掉光斑 Ellipse 的负 Margin 溢出，等效设计稿 overflow:hidden，geometry 实例跨次复用零高频分配）；`Window_StateChanged` 联动最大化清零圆角（贴满工作区不留透明角）、还原恢复 14px。注意 `WindowChrome.CornerRadius` 属性只影响非客户区计算、不产生视觉圆角（保持 0）。**附带效果**：WPF 分层窗口强制软件渲染——窗口不再产生 D3D 高频呈现，与 SoftwareRenderingPolicy 形成双保险（若用户实测圆角方案单独已消除双指针，后续迭代可评估清理开关）。
+- **测试沉淀**：harness `UI-无边框窗口WindowChrome配置` 用例追加圆角三件套断言（AllowsTransparency=true / 窗口背景 alpha=0 / rootFrame CornerRadius=14 + Clip 已挂），用例数不变（182，断言并入既有用例）；`Run-AllTests` 全绿（构建 + 182 用例 + GUI 冒烟退出码 0），desktop 整屏截图目检四角圆角生效。
+
+### 为什么这么改
+
+用户报告：软件编译启动后移动鼠标出现两个指针（一跟手一滞后），关闭软件恢复；经 desktop 探针排查（渲染层级 Tier=2、netfx WPF 与 milcore 均无软件自绘光标机制、项目代码无自绘光标）+ 用户确认观测通道（UU远程、残影形态、启动即现）锁定为远程串流"游戏采集路径"的双光标合成，软件侧用软件渲染绕开 D3D 采集识别。窗口圆角为用户同期追加的视觉需求（玻璃拟态设计稿中窗口本身就是 14px 圆角卡片），顺带消除了远程环境的 D3D 呈现来源。性能说明：分层窗口强制软件渲染会使预览合成走 CPU（1080P 预览帧率略降、CPU 占用略升）——远程串流环境本就需要软件渲染无感，纯本地现场若嫌卡可 `ForceSoftwareRendering=false` 评估（但对分层窗口无效）或后续评估撤圆角换 SetWindowRgn 方案。
+
 ## v2.10.2（2026-11-15）移除系统标题栏改自绘窗口控制（v2.10 目检反馈）
 
 ### 改动范围

@@ -24,6 +24,7 @@ namespace YoloDetector.Configuration
         private static YoloConfig _yoloConfig;
         private static EsdConfig _esdConfig;
         private static DoorConfig _doorConfig;
+        private static bool? _forceSoftwareRendering;
         private static readonly object _lockObj = new object();
 
         private static readonly string ConfigFilePath =
@@ -153,21 +154,47 @@ namespace YoloDetector.Configuration
             }
         }
 
+        /// <summary>
+        /// appsettings.json 全局渲染模式覆盖（null=自动检测远程控制软件）。
+        /// 注意：appsettings.json 反序列化目标是 CameraConfig，但 _current 单例
+        /// 实际来自 cameraConfigs/{品牌}.json（品牌文件里没有该字段），所以全局
+        /// 字段必须在 Load() 里单独摘出来存到本属性，供 App 启动决策渲染模式。
+        /// </summary>
+        public static bool? ForceSoftwareRendering
+        {
+            get
+            {
+                lock (_lockObj)
+                {
+                    return _forceSoftwareRendering;
+                }
+            }
+        }
+
         /// <summary>加载完整配置（主配置 + 品牌配置 + YOLO 配置 + ESD 配置）</summary>
         public static void Load()
         {
             string activeBrand = DefaultBrand;
 
-            // 步骤1：从主配置读取激活的品牌名
+            // 步骤1：从主配置读取激活的品牌名与全局渲染模式覆盖
             try
             {
                 if (File.Exists(ConfigFilePath))
                 {
                     string json = File.ReadAllText(ConfigFilePath);
                     var config = JsonConvert.DeserializeObject<CameraConfig>(json);
-                    if (config != null && !string.IsNullOrEmpty(config.ActiveCameraConfig))
+                    if (config != null)
                     {
-                        activeBrand = config.ActiveCameraConfig;
+                        if (!string.IsNullOrEmpty(config.ActiveCameraConfig))
+                        {
+                            activeBrand = config.ActiveCameraConfig;
+                        }
+
+                        // 全局字段摘存：与 _current（品牌配置）分开保管
+                        lock (_lockObj)
+                        {
+                            _forceSoftwareRendering = config.ForceSoftwareRendering;
+                        }
                     }
                 }
             }

@@ -92,6 +92,8 @@ YoloDetector/
     - **标题区内交互控件必须 `shell:WindowChrome.IsHitTestVisibleInChrome="True"`**，否则点击被 WindowChrome 当成拖动标题栏吞掉（无边框改造最经典翻车点）；纯展示元素（logo/状态徽标）故意不声明 = 拖动热区。harness 用例 `UI-无边框窗口WindowChrome配置` 已锁死此配置，改动后跑全量回归防回退；
     - **WindowChrome 最大化默认盖任务栏（desktop 实测最大化 bounds = 屏幕 1920×1080+14，探出 7px/边）**：其内置 WM_GETMINMAXINFO 处理按整个显示器而非工作区计算。修复 = `MainWindow.OnSourceInitialized` 追加窗口过程钩子把最大化目标改写为工作区（`AdjustMaximizedBounds`，handled=true 阻止 DefWindowProc 覆盖），修复后最大化 bounds 恰为工作区、任务栏可见。改窗口外壳代码时勿删此钩子；
     - **验证探针坑**：desktop 工具 headless 模式禁物理点击；`PostMessage(WM_LBUTTONDOWN)` 合成鼠标消息对 WPF 完全无效（对照实验：非标题区按钮也不响应、不获焦）——命中测试类行为无法在 headless 下真实验证，只能靠配置断言（harness 用例）+ 用户真实点击兜底。UIA semantic click（InvokePattern）走无障碍通道，绕过 WPF 命中测试，测不出"点击被吞成拖动"这类问题。
+  - **WPF 真圆角窗口三件套（v2.10.3，改窗口外观前必读）**：Win10 无 DWM 圆角 API（Win11 的 `DWMWA_WINDOW_CORNER_PREFERENCE` 不可用），WPF 要做真圆角必须：窗口 `AllowsTransparency="True"` + 窗口本体 `Background="Transparent"` + 内容包进圆角 Border（`rootFrame`，CornerRadius=14 照设计稿）。**`WindowChrome.CornerRadius` 属性只影响非客户区计算、不产生视觉圆角**（保持 0）。两个联动点缺一不可：① `rootFrame.SizeChanged` 同步圆角矩形 `RectangleGeometry` Clip（光斑 Ellipse 负 Margin 刻意溢出窗口，不裁会画到四角外；geometry 实例跨次复用）；② `Window_StateChanged` 最大化时清零圆角+Clip 半径（贴满工作区不留透明角），还原恢复 14px。**分层窗口会强制整个窗口软件渲染**（WPF 特性，`RenderCapability.Tier` 仍显示 2 但窗口实际走 CPU 合成）——预览合成走 CPU、帧率略降，这是圆角的固有代价；harness 用例 `UI-无边框窗口WindowChrome配置` 已锁死三件套配置。
+  - **远程串流软件双指针（v2.10.3，UU远程实测沉淀）**：被控端跑着网易 UU远程（GameViewer）/向日葵等远程软件时，WPF 的 D3D 高频呈现会被识别成"游戏"切到高性能采集路径——画面光标由远程软件合成进捕获帧（跟帧率、滞后残影），控制端又画实时本地指针 → 用户看到双指针；软件关闭即恢复（WinForms 版 GDI 渲染不触发）。修复：`App/SoftwareRenderingPolicy.cs` 启动时（`App.OnStartup` 首窗口创建前）自动检测远程控制软件进程命中即切 `RenderOptions.ProcessRenderMode=SoftwareOnly`；`appsettings.json` 的 `ForceSoftwareRendering`（null=自动/true/false）可覆盖。注意：appsettings.json 反序列化目标是 `CameraConfig` 但 `_current` 单例实际来自品牌文件，全局字段必须在 `AppConfig.Load()` 里单独摘存（见 `AppConfig.ForceSoftwareRendering`）。窗口已改分层窗口（强制软件渲染）后本开关成为双保险，是否清理待用户实测圆角方案能否单独消除双指针。
 
 ## 并发与资源管理红线（本项目核心特色，均为实测踩坑沉淀）
 
@@ -130,6 +132,7 @@ YoloDetector/
 | `UI/RoiSelectionImage.cs` | 自带拖拽框选标定的预览控件（WPF 薄壳：鼠标接线/虚线框/CaptureMouse/HitTestCore 全内置，接入方订阅 RoiSelected 即用；纯逻辑在类库） |
 | `App/VideoDetectionController.cs` | 检测链路编排：帧源→管道→可视化生命周期、Mat 所有权终结点、模型复用 |
 | `App/SkBitmapWpfExtensions.cs` | SKBitmap→WriteableBitmap 宿主边界转换（WPF 显示专用，整块 WritePixels 约 2~3ms，复用单实例逐帧零分配） |
+| `App/SoftwareRenderingPolicy.cs` | 渲染模式决策（远程串流双指针修复 v2.10.3）：检测远程控制软件进程切软件渲染，`ForceSoftwareRendering` 配置可覆盖；进程匹配为纯函数可单测 |
 | `App/CameraController.cs` | 相机连接状态机、防重入状态轮询、拉/推流操作 |
 | `Detection/YoloDetectionService.cs` | 检测管道（Monitor 生产者-消费者、单槽位缓冲、快照事件、有界停止） |
 | `Detection/RtspFrameCapturer.cs` | RTSP 帧捕获（线程私有 VideoCapture、断流两层自愈：连续失败重连+心跳看门狗强杀重建、失败路径零泄漏） |

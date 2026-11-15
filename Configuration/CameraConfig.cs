@@ -12,6 +12,16 @@ namespace YoloDetector.Configuration
         [JsonProperty("ActiveCameraConfig")]
         public string ActiveCameraConfig { get; set; } = "ANGEHUA";
 
+        /// <summary>
+        /// WPF 渲染模式覆盖（appsettings.json 全局配置，随本模型一起反序列化）：
+        ///   null（缺省）= 自动——检测到远程控制软件（UU远程/向日葵/ToDesk 等）在运行时
+        ///                切软件渲染，修复远程画面里"双指针"问题（v2.10.3，详见 SoftwareRenderingPolicy）；
+        ///   true        = 强制软件渲染；false = 强制硬件渲染。
+        /// 可空 bool 缺省即 null，旧配置文件缺该字段时行为不变。
+        /// </summary>
+        [JsonProperty("ForceSoftwareRendering")]
+        public bool? ForceSoftwareRendering { get; set; }
+
         public ConnectionConfig Connection { get; set; } = new ConnectionConfig();
 
         public ApiConfig Api { get; set; } = new ApiConfig();

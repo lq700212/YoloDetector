@@ -36,12 +36,17 @@ namespace YoloDetector.Tests
         }
 
         /// <summary>
-        /// 无边框窗口（WindowStyle=None + WindowChrome）配置回归（v2.10.2 沉淀）：
+        /// 无边框窗口（WindowStyle=None + WindowChrome）配置回归（v2.10.2 沉淀，
+        /// v2.10.3 追加圆角窗口断言）：
         ///   系统标题栏已移除，窗口外壳行为全部压在 WindowChrome 配置上——
         ///   CaptionHeight 被误改会丢"顶栏空白拖动/双击最大化"，ResizeBorderThickness
         ///   被误改会丢边缘缩放；而顶栏交互控件漏配 IsHitTestVisibleInChrome 是
         ///   无边框改造最经典的翻车点：点击输入框/按钮会被 WindowChrome 当成
         ///   "拖动标题栏"吞掉（UIA/InvokePattern 探针测不到，只能靠配置断言锁死）。
+        ///   圆角窗口（v2.10.3）：真圆角依赖 AllowsTransparency 分层窗口 +
+        ///   透明窗口背景 + 内容 rootFrame 14px 圆角（设计稿 .mock 的
+        ///   border-radius:14px），三件套缺一不可——AllowsTransparency 被去掉
+        ///   则四角重新变直角，rootFrame 圆角被改则与设计稿不符。
         /// </summary>
         private static void ChromelessWindowConfig()
         {
@@ -54,6 +59,22 @@ namespace YoloDetector.Tests
                 DoEvents();
 
                 T.True(window.WindowStyle == WindowStyle.None, "WindowStyle 应为 None（无系统标题栏）");
+
+                // 圆角窗口三件套（v2.10.3）：分层窗口 + 透明背景 + 内容圆角框架
+                T.True(window.AllowsTransparency,
+                       "AllowsTransparency 应=true（真圆角依赖分层窗口，且强制软件渲染避开远程串流 D3D 采集）");
+                var bgBrush = window.Background as System.Windows.Media.SolidColorBrush;
+                T.True(bgBrush != null && bgBrush.Color.A == 0,
+                       "窗口背景应透明（圆角四角透出桌面）");
+                var rootFrame = window.FindName("rootFrame") as System.Windows.Controls.Border;
+                T.True(rootFrame != null, "圆角框架 rootFrame 应存在");
+                if (rootFrame != null)
+                {
+                    T.True(rootFrame.CornerRadius.TopLeft == 14,
+                           "rootFrame 圆角应=14（照设计稿 .mock 的 border-radius:14px）");
+                    T.True(rootFrame.Clip is System.Windows.Media.RectangleGeometry,
+                           "rootFrame 应挂圆角矩形 Clip（等效设计稿 overflow:hidden，裁光斑溢出）");
+                }
 
                 var chrome = System.Windows.Shell.WindowChrome.GetWindowChrome(window);
                 T.True(chrome != null, "应挂 WindowChrome（无边框窗口外壳）");
