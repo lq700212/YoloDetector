@@ -269,24 +269,28 @@
         </Setter>
     </Style>
 
-    <!-- 日志框：只读、无边框、等宽字体、透明底（文字颜色由布局层 DynamicResource 设置） -->
-    <Style x:Key="LogBox" TargetType="TextBox">
+    <!-- 日志列表：无边框、透明底（滚动由外层 ScrollViewer 负责，行样式见 LogLineText）。
+         设计稿 CSS .m-log：Consolas/Cascadia Mono 12px + line-height 1.9 + 正文色 log-text 变量；
+         时间戳独立色 log-time 变量（.m-log .t），纯 TextBox 无法分色，故每条日志在
+         code-behind 生成一个 TextBlock（时间戳 Run 挂 LogTimeBrush、正文 Run 挂 LogTextBrush） -->
+    <Style x:Key="LogBox" TargetType="ItemsControl">
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="IsReadOnly" Value="True"/>
+        <Setter Property="Padding" Value="0"/>
+    </Style>
+
+    <!-- 日志行文本：等宽 12px（设计稿 .m-log font-size:12px），
+         行距 22.8px = 1.9 × 12（设计稿 line-height:1.9，CSS 行盒高度严格等于该值，
+         故用 BlockLineHeight 策略强制生效而非 MaxHeight 的"至少这么高"），
+         不折行（维持旧版 TextBox TextWrapping=NoWrap 的行为），
+         正文色 DynamicResource 挂 LogTextBrush，深浅主题切换自动刷新 -->
+    <Style x:Key="LogLineText" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="Consolas, Cascadia Mono"/>
         <Setter Property="FontSize" Value="12"/>
-        <Setter Property="Padding" Value="0"/>
+        <Setter Property="LineHeight" Value="22.8"/>
+        <Setter Property="LineStackingStrategy" Value="BlockLineHeight"/>
         <Setter Property="TextWrapping" Value="NoWrap"/>
-        <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
-        <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="TextBox">
-                    <ScrollViewer x:Name="PART_ContentHost" Background="Transparent"/>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
+        <Setter Property="Foreground" Value="{DynamicResource LogTextBrush}"/>
     </Style>
 
     <!-- 设备状态文本：等宽字体（CSS .dev-status） -->

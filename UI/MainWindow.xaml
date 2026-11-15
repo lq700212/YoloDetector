@@ -444,10 +444,16 @@
                                 <TextBlock Text="运行日志" Style="{StaticResource CardTitleText}"
                                            Margin="8,0,0,0"/>
                             </StackPanel>
-                            <TextBox x:Name="txtLog" Grid.Row="1" Style="{StaticResource LogBox}"
-                                     Foreground="{DynamicResource LogTextBrush}"
-                                     SelectionBrush="{DynamicResource PrimaryBrush}"
-                                     Margin="0,10,0,0"/>
+                            <!-- 日志列表（ScrollViewer 外置滚动 + ItemsControl 装行）：
+                                 每条日志一个 TextBlock（见 LogLineText 样式与 AppendLogToPanel 注释），
+                                 时间戳/正文分色才能实现设计稿 .m-log .t 的独立灰色 -->
+                            <ScrollViewer x:Name="svLog" Grid.Row="1"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          Background="Transparent"
+                                          Margin="0,10,0,0">
+                                <ItemsControl x:Name="lstLog" Style="{StaticResource LogBox}"/>
+                            </ScrollViewer>
                         </Grid>
                     </Border>
                 </Grid>

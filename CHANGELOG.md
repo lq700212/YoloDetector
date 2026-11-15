@@ -2,6 +2,20 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.10.4（2026-11-15）运行日志字号/颜色/行距对齐设计稿（v2.10 目检反馈）
+
+### 改动范围
+
+- **症状**：主界面运行日志与设计稿（方案三 `.m-log`）不一致——行距过挤（WPF TextBox 默认行高约 16px vs 设计稿 `line-height:1.9` = 12px × 1.9 = 22.8px），且时间戳与正文同色（设计稿 `.m-log .t` 要求时间戳用独立暗灰 `log-time` 变量色、正文用 `log-text` 变量色）。
+- **控件替换**：`MainWindow.xaml` 日志区由纯文本 `TextBox`（无法富文本分色）换成外置 `ScrollViewer(svLog)` + `ItemsControl(lstLog)`，每条日志在 `AppendLogToPanel` 里生成一个 `TextBlock` 行：时间戳 `Run` 挂 `LogTimeBrush`、正文 `Run` 继承行样式的 `LogTextBrush`。画刷一律走资源引用（样式内 `DynamicResource` + code-behind `SetResourceReference(TextElement.ForegroundProperty, ...)`）而非取值固化——实测切主题时已显示的历史行颜色同步刷新（深浅双模式截图验证）。
+- **行样式 `LogLineText`（`GalaxyTheme.xaml` 新增）**：等宽 `Consolas, Cascadia Mono` 12px；`LineHeight=22.8` + `LineStackingStrategy=BlockLineHeight`（CSS line-height 是严格行盒高度，对应 WPF 的 BlockLineHeight 策略；默认 MaxHeight 策略下 LineHeight 只是"至少这么高"）；`TextWrapping=NoWrap` 维持旧版行为；正文色 `DynamicResource LogTextBrush`。画刷色值本身与设计稿已一致无需改（深 #A9B2CB/#5E6880、浅 #5F6A85/#9AA3B8）。
+- **既有语义保持**：智能跟随（滚动条在底部才自动滚到底，用户上翻历史不被拉回）改用 `ScrollViewer.ScrollableHeight/VerticalOffset` 判断（= 旧 `ExtentHeight-ViewportHeight` 判断的现成等价物）；500 行裁剪从"文本重切"改为 `Items.RemoveAt(0)` 头部移除（TextBlock 无非托管资源，交 GC）；消息夹带换行时拆段插 `LineBreak`（时间戳仍只在首行前缀，续行顶格，与旧 TextBox 多行显示一致）。
+- **验证**：`Run-AllTests` 全绿（构建 + 182 用例 + GUI 冒烟退出码 0）；desktop 截图 + Python 像素取色逐项核对——深浅双主题时间戳/正文四项色值与设计稿**逐像素精确命中**（(94,104,128)/(169,178,203)/(154,163,184)/(95,106,133)），行中心间距实测 22/23px ≈ 目标 22.8px（整数像素量化抖动）。
+
+### 为什么这么改
+
+用户对照设计稿反馈日志文字的字体大小、颜色、间隔三要素必须一致。字号与正文色 v2.10 已对齐，真正缺的是行距（TextBox 未设 LineHeight）与时间戳独立色——后者是纯 TextBox 结构性做不到的，借此换成按行 TextBlock 的结构，顺带让裁剪逻辑更简单直接。注意 `Run`/`LineBreak` 需要 `using System.Windows.Documents`；XAML 注释里写设计稿变量名（含 `--` 前缀）会踩 MC3000 注释禁 `--` 的已知坑，措辞用"log-text 变量"避开。
+
 ## v2.10.3（2026-11-15）修复远程串流双指针 + 窗口整体圆角
 
 ### 改动范围

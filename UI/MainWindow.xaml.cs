@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -65,7 +66,7 @@ namespace YoloDetector.UI
         /// <summary>当前是否深色主题（初始深色，与设计稿默认一致）</summary>
         private bool _isDarkTheme = true;
 
-        // 日志行数计数（WPF TextBox 无 WinForms 的 Lines 属性，自行计数驱动 500 行裁剪）
+        // 日志行数计数（lstLog.Items 里一行一个 TextBlock，自行计数驱动 500 行裁剪）
         private int _logLineCount;
         private const int MaxLogLines = 500;
 
@@ -163,7 +164,7 @@ namespace YoloDetector.UI
 
         private void AppendLogToPanel(string message)
         {
-            if (txtLog == null)
+            if (lstLog == null || svLog == null)
             {
                 return;
             }
@@ -171,29 +172,51 @@ namespace YoloDetector.UI
             string time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
             // 智能跟随：仅当滚动条已在底部时才自动滚到新行，
-            // 用户上翻历史日志时不会被强行拉回（WinForms 版滚动位置保护的同款语义）
-            bool atBottom = txtLog.ExtentHeight <= 0 ||
-                (txtLog.VerticalOffset + txtLog.ViewportHeight) >= txtLog.ExtentHeight - 1.0;
+            // 用户上翻历史日志时不会被强行拉回（WinForms 版滚动位置保护的同款语义）。
+            // ScrollableHeight = 可滚动总量（旧版 ExtentHeight - ViewportHeight 的现成等价物）
+            bool atBottom = svLog.ScrollableHeight <= 0 ||
+                svLog.VerticalOffset >= svLog.ScrollableHeight - 1.0;
 
-            txtLog.AppendText("[" + time + "] " + message + Environment.NewLine);
+            // 每条日志一个 TextBlock（行样式 LogLineText：等宽 12px / 行距 22.8 对齐设计稿 line-height:1.9）。
+            // 设计稿 .m-log .t 要求时间戳用独立的暗灰 LogTimeBrush，正文用 LogTextBrush——
+            // 旧版纯 TextBox 做不到分色才换成按行生成；画刷一律走资源引用（DynamicResource /
+            // SetResourceReference）而不是 FindResource 取值固化，主题切换时历史行同步变色
+            var line = new TextBlock { Style = (Style)FindResource("LogLineText") };
+            var timeRun = new Run("[" + time + "] ");
+            timeRun.SetResourceReference(TextElement.ForegroundProperty, "LogTimeBrush");
+            line.Inlines.Add(timeRun);
+
+            // 防御：消息里夹带换行时 NoWrap 下 Run 内 \n 显示异常，拆成多段用 LineBreak 连接
+            // （时间戳仍只挂在首行前缀，续行顶格，与旧版 TextBox 的多行显示一致）
+            string[] parts = message.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (i > 0)
+                {
+                    line.Inlines.Add(new LineBreak());
+                }
+                line.Inlines.Add(new Run(parts[i]));
+            }
+
+            lstLog.Items.Add(line);
             _logLineCount++;
 
-            // 行数超限时裁掉前一半：AppendText 对长文本是 O(n) 操作且 TextBox
-            // 保留全部历史会持续吃内存，现场长时间运行必须限制（阈值 500 行）。
-            // WPF 无 Lines 属性，按换行切分；只在跨过阈值时执行（每 250 行一次），开销可忽略
+            // 行数超限时裁掉前一半：保留全部历史行会持续吃内存，现场长时间运行必须限制
+            // （阈值 500 行）。TextBlock 无非托管资源，移除后直接交 GC；只在跨过阈值时执行
+            // （每 250 行一次），开销可忽略
             if (_logLineCount > MaxLogLines)
             {
-                var lines = txtLog.Text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-                int cut = lines.Length - MaxLogLines / 2;
-                var kept = new string[lines.Length - cut];
-                Array.Copy(lines, cut, kept, 0, kept.Length);
-                txtLog.Text = string.Join(Environment.NewLine, kept) + Environment.NewLine;
-                _logLineCount = kept.Length;
+                int cut = _logLineCount - MaxLogLines / 2;
+                for (int i = 0; i < cut; i++)
+                {
+                    lstLog.Items.RemoveAt(0);
+                }
+                _logLineCount = MaxLogLines / 2;
             }
 
             if (atBottom)
             {
-                txtLog.ScrollToEnd();
+                svLog.ScrollToEnd();
             }
         }
 
