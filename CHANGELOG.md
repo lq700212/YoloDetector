@@ -2,6 +2,22 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.11.1（2026-11-16）顶栏应用名改为「YOLO 检测」
+
+### 改动范围
+
+- `UI/MainWindow.xaml`：顶栏 logo 旁的应用名文本由「YOLO 玻璃台」改为「YOLO 检测」（用户指定文案，
+  该文案原本沿自设计稿 `design/风格提案.html` 的原型命名），文件头 ASCII 布局图同步更新保持一致。
+
+### 说明
+
+- 纯展示文本改动，仅一处 `TextBlock.Text`，不涉及布局结构、主题画刷与 WindowChrome 标题区配置，
+  无行为变化。构建 0 警告 0 错误 + GUI 冒烟通过（启动存活、正常退出 ExitCode=0）。
+- 设计稿 HTML 中的「YOLO 玻璃台」为历史提案原型保留不动；harness 用例无该文本断言，无需改测试。
+- 顺带踩坑记录：临时 PowerShell 冒烟脚本含中文注释但存为 UTF-8 无 BOM，PowerShell 5.1 按 ANSI
+  解析导致脚本变量行被乱码吞掉（即 AGENTS.md 铁律 1 的 ps1 变体坑）——临时脚本一律用纯 ASCII
+  或 UTF-8 带 BOM。
+
 ## v2.11（2026-11-16）YOLO 检测通用核心沉淀到 kaleidoscope 仓库（git submodule 方式）
 
 ### 改动范围

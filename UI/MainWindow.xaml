@@ -5,7 +5,7 @@
     ┌──────────────────────────────────────────────────────────────────────────────┐
     │ 顶栏玻璃条 h=62（系统标题栏已移除：WindowStyle=None + WindowChrome，           │
     │   空白区拖动窗口/双击最大化/边缘缩放由 WindowChrome 提供，顶栏空白即标题区）    │
-    │  [■logo YOLO 玻璃台] [txtIp 相机IP] [btnConnect ⏻连接相机]                    │
+    │  [■logo YOLO 检测] [txtIp 相机IP] [btnConnect ⏻连接相机]                      │
     │  [txtStreamUrl 流地址 MaxWidth420] ....间隙.... [通道 -0+] [●徽标] [◐] [-□✕]  │
     │                                    （-□✕=自绘窗口钮：btnMinWindow/btnMaxWindow│
     │                                      /btnCloseWindow，最大化时 □ 切换为还原）  │
@@ -129,7 +129,7 @@
                                 </LinearGradientBrush>
                             </Border.Background>
                         </Border>
-                        <TextBlock Text="YOLO 玻璃台" FontSize="15" FontWeight="Bold"
+                        <TextBlock Text="YOLO 检测" FontSize="15" FontWeight="Bold"
                                    Foreground="{DynamicResource TextPrimaryBrush}"
                                    Margin="10,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
