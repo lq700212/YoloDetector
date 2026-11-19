@@ -2,6 +2,26 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.11.3（2026-11-19）UI 库去重优化同步：两窗基类外壳构造与最大化修正收拢到 KxShellInterop
+
+### 改动范围
+
+- submodule 指针更新到 kaleidoscope V2.2.1（1230e73 → b39cf94）：上轮反哺的
+  ChromeBorderlessWindow 与库内既有的 ChromeDialogWindow 存在两处重复面，kaleidoscope
+  侧收拢去重——① `KxShellInterop.BuildChrome` 共享 WindowChrome 构造（两基类
+  ApplyChrome 手抄同段合并）；② `KxShellInterop.EnableMaximizedWorkAreaFix` 收拢
+  WM_GETMINMAXINFO 工作区修正的 Win32 互操作全套（带幂等闸）。
+- 宿主侧零代码改动：MainWindow 继承的 ChromeBorderlessWindow 只做内部重构（改调
+  共享实现），行为等价。
+
+### 说明
+
+- 顺带收益：弹窗基类 ChromeDialogWindow 补了 `FixMaximizedToWorkArea` DP（缺省
+  false=两宿主现状不变）——可缩放弹窗（日志/报警窗）最大化盖任务栏的修正能力
+  备好，本宿主未来加弹窗时可直接用。
+- 验证：主项目构建 0 警告 0 错误 + 全量回归 182/182 全绿 + GUI 冒烟 + desktop
+  像素复核（最大化贴合工作区/圆角归零与去重前一致）。
+
 ## v2.11.2（2026-11-19）主窗骨架接入公司级控件库：MainWindow 改继承 kaleidoscope 的 ChromeBorderlessWindow 基类
 
 ### 改动范围
