@@ -20,7 +20,7 @@ description: "YoloDetector 一键全量回归验证：构建主项目、运行 1
 > MatExtensions、IDetectionResultProcessor、Visualizers、YoloBuiltinVisualizer、YoloV26Detector、
 > YoloPoseDetector、PoseResult、EsdRoiRect、ZoomMapping、RoiSelectionState、RtspFrameCapturer、
 > LogManager；其余（YoloDetectionService/Esd*/Door* 业务层）仍在宿主 `Detection\`。
-> harness 经 `YoloDetector.Tests.csproj` 同时引用两个 DLL，测试源码零 using 改动。
+> harness 经 `YoloDetector.Tests.csproj` 同时引用主 exe 与检测域两个 DLL（v2.11.2 起再补 Kaleidoscope.UI.dll——MainWindow 基类在该库，断言 Window 级成员需基类程序集引用），测试源码零 using 改动。
 
 | 源文件 | 测试分区 |
 | --- | --- |

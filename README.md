@@ -77,7 +77,7 @@ graph LR
 YoloDetector/
 ├── UI/                     视图层（WPF）：App.xaml 入口 + MainWindow + Themes 玻璃拟态主题 + RoiSelectionImage 框选控件
 ├── App/                    编排层（视频检测控制器 / 相机连接控制器 / SKBitmap→WriteableBitmap 显示转换）
-├── submodules/kaleidoscope git submodule：通用库仓库，检测通用核心在其 Vision/Detection/
+├── submodules/kaleidoscope git submodule：通用库仓库，检测通用核心在其 Vision/Detection/，WPF 复用控件库在其 Kaleidoscope.UI/（宿主 UI 层引用其无边框窗基类）
 │   └── Vision/Detection/   【核心类库 Kaleidoscope.Detection.dll】YOLO检测器 / 姿态检测器 / 帧源 / 接口契约 / Mat↔SKBitmap 互转 / 可视化 / ROI框选 / 日志门面（libs 含托管+native 双平台依赖）
 ├── Detection/              检测域业务层【独立类库 YoloDetector.Detection.dll】：检测管道 / 静电接触分析 / 门监测
 │   ├── yoloConfig.json     YOLO 运行参数

@@ -49,6 +49,13 @@
       <HintPath>..\..\..\..\bin\Debug\net472\Kaleidoscope.Detection.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- v2.11.2 起 MainWindow 继承 Kaleidoscope.UI.ChromeBorderlessWindow（submodule
+         控件库，主项目 ProjectReference 自动复制 net472 产物到 bin）——harness 断言
+         MainWindow 的 Window 级成员时编译器需要基类程序集引用（CS0012） -->
+    <Reference Include="Kaleidoscope.UI">
+      <HintPath>..\..\..\..\bin\Debug\net472\Kaleidoscope.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="OpenCvSharp">
       <HintPath>..\..\..\..\bin\Debug\net472\OpenCvSharp.dll</HintPath>
       <Private>false</Private>

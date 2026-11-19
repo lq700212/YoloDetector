@@ -1,18 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using Kaleidoscope.UI.Views;
 using SkiaSharp;
 using YoloDetection;
 using YoloDetector.App;
@@ -24,6 +23,10 @@ namespace YoloDetector.UI
 {
     /// <summary>
     /// 主窗口（纯视图层，玻璃拟态 Glass Aurora 版）。
+    /// 继承 Kaleidoscope.UI.Views.ChromeBorderlessWindow（公司级无边框圆角窗
+    /// 基类，v2.11.2 接入）：WindowStyle=None/分层透明/WindowChrome 外壳/
+    /// 圆角 Clip 同步/最大化圆角归零/最大化工作区修正全部由基类内建，
+    /// 本类只保留业务行为（图标切换、日志、检测链路接线）。
     ///
     /// 职责边界（与 WinForms 版 MainForm 一致）：
     ///   - 只负责界面交互与结果显示
@@ -40,7 +43,7 @@ namespace YoloDetector.UI
     ///   SkBitmapWpfExtensions.TryWriteTo 整块写入复用的 WriteableBitmap
     ///   （分辨率不变时跨帧零大对象分配），SKBitmap 用完立即 Dispose。
     /// </summary>
-    public partial class MainWindow : Window
+    public partial class MainWindow : ChromeBorderlessWindow
     {
         private readonly CameraController _cameraController = new CameraController();
         private VideoDetectionController _videoController;
@@ -70,51 +73,14 @@ namespace YoloDetector.UI
         private int _logLineCount;
         private const int MaxLogLines = 500;
 
-        // ============================================================
-        // 圆角窗口框架（v2.10.3，照设计稿 .mock 的 border-radius:14px + overflow:hidden）
-        //   窗口本体透明 + 内容包在 rootFrame（14px 圆角 Border）里，视觉圆角
-        //   由这层 Border 提供；光斑 Ellipse 刻意负 Margin 溢出窗口，必须给
-        //   rootFrame 设置圆角矩形 Clip 才等效设计稿的 overflow:hidden。
-        //   最大化时圆角清零（贴满工作区不留透明角），还原时恢复。
-        // ============================================================
-
-        /// <summary>窗口圆角半径（与设计稿 .mock 的 border-radius:14px 一致）</summary>
-        private const double WindowCornerRadius = 14;
-
-        /// <summary>复用的裁剪几何（窗口拖拽缩放时 SizeChanged 高频触发，避免反复分配）</summary>
-        private readonly RectangleGeometry _frameClip = new RectangleGeometry
-        {
-            RadiusX = WindowCornerRadius,
-            RadiusY = WindowCornerRadius
-        };
-
         public MainWindow()
         {
             InitializeComponent();
-
-            // 圆角裁剪：rootFrame 尺寸变化（首帧布局/拖拽缩放/最大化）时同步 Clip；
-            // geometry 实例跨次复用，只改 Rect，避免高频分配。
-            rootFrame.SizeChanged += (s, e) => UpdateFrameClip();
 
             // 输入框初值（与 WinForms 版 InitializeComponent 一致：来自运行配置）
             txtIp.Text = AppConfig.Current.Connection.DefaultIp;
             txtStreamUrl.Text = AppConfig.Current.Stream.GetRtspUrl(
                 AppConfig.Current.Connection.DefaultIp, 0);
-        }
-
-        /// <summary>
-        /// 同步 rootFrame 的圆角矩形裁剪（等效设计稿 overflow:hidden）。
-        /// 半径来源：最大化时圆角已清零（半径 0），还原态用设计稿的 14px——
-        /// 这样 Clip 与 Border.CornerRadius 始终一致，不会出现"背景是圆角、
-        /// 内容直角溢出"或反向的错位。
-        /// </summary>
-        private void UpdateFrameClip()
-        {
-            double radius = WindowState == WindowState.Maximized ? 0 : WindowCornerRadius;
-            _frameClip.Rect = new Rect(0, 0, rootFrame.ActualWidth, rootFrame.ActualHeight);
-            _frameClip.RadiusX = radius;
-            _frameClip.RadiusY = radius;
-            rootFrame.Clip = _frameClip;
         }
 
         /// <summary>窗口加载（对应 WinForms OnShown：句柄/界面就绪后再记录启动提示）</summary>
@@ -850,9 +816,9 @@ namespace YoloDetector.UI
 
         /// <summary>
         /// 窗口状态变化（含双击标题区/贴边分屏等 WindowChrome 触发的路径）：
-        /// 同步最大化/还原两枚图标 + 按钮提示，保证任何路径改状态后图标都正确；
-        /// 并联动圆角窗口框架——最大化时清零圆角（贴满工作区不留透明角），
-        /// 还原时恢复 14px（与 UpdateFrameClip 一起成对生效）。
+        /// 同步最大化/还原两枚图标 + 按钮提示，保证任何路径改状态后图标都正确。
+        /// （圆角窗口框架联动——最大化清零圆角/还原恢复 14px/Clip 重挂——已内建
+        /// 于基类 ChromeBorderlessWindow，这里只剩宿主的图标切换行为。）
         /// </summary>
         private void Window_StateChanged(object sender, EventArgs e)
         {
@@ -860,118 +826,7 @@ namespace YoloDetector.UI
             iconMaximize.Visibility = maximized ? Visibility.Collapsed : Visibility.Visible;
             iconRestore.Visibility = maximized ? Visibility.Visible : Visibility.Collapsed;
             btnMaxWindow.ToolTip = maximized ? "还原" : "最大化";
-
-            // 圆角窗口框架联动：最大化清零圆角 + 同步 Clip；
-            // 还原态重新应用 14px 圆角（SizeChanged 可能不触发——尺寸恰未变时）
-            rootFrame.CornerRadius = new CornerRadius(maximized ? 0 : WindowCornerRadius);
-            UpdateFrameClip();
         }
-
-        // ============================================================
-        // 无边框窗口最大化修正（WM_GETMINMAXINFO，实测踩坑沉淀）
-        //   现象：WindowChrome 对 WM_GETMINMAXINFO 的默认处理把最大化尺寸
-        //   扩到整个显示器（desktop 实测最大化 bounds = 1934×1094 @(-7,-7)，
-        //   屏幕 1920×1080）——底部盖住任务栏，四周探出的 7px 藏缩放热区。
-        //   修复：追加窗口过程钩子，把最大化目标改写为显示器工作区
-        //   （不含任务栏）。WindowChrome 的探出逻辑基于该值继续生效，
-        //   客户区基本贴合工作区（顶部探出的几像素为顶栏背景条，无感）。
-        // ============================================================
-
-        private const int WM_GETMINMAXINFO = 0x0024;
-        private const uint MONITOR_DEFAULTTONEAREST = 2;
-
-        /// <summary>句柄创建后挂窗口过程钩子（WindowChrome 的钩子先注册，本钩子后写入值生效）</summary>
-        protected override void OnSourceInitialized(EventArgs e)
-        {
-            base.OnSourceInitialized(e);
-            var source = (HwndSource)PresentationSource.FromVisual(this);
-            if (source != null)
-            {
-                source.AddHook(WndProc);
-            }
-        }
-
-        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-        {
-            if (msg == WM_GETMINMAXINFO)
-            {
-                AdjustMaximizedBounds(hwnd, lParam);
-                handled = true; // 阻止 DefWindowProc 用显示器全尺寸覆盖我们写入的工作区值
-            }
-            return IntPtr.Zero;
-        }
-
-        /// <summary>把最大化尺寸/位置改写为最近显示器的"工作区"（任务栏以外的区域）</summary>
-        private void AdjustMaximizedBounds(IntPtr hwnd, IntPtr lParam)
-        {
-            var mmi = (MINMAXINFO)Marshal.PtrToStructure(lParam, typeof(MINMAXINFO));
-
-            IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            if (monitor == IntPtr.Zero)
-            {
-                return;
-            }
-
-            var info = new MONITORINFO();
-            info.cbSize = Marshal.SizeOf(info);
-            if (!GetMonitorInfo(monitor, ref info))
-            {
-                return;
-            }
-
-            // 最大化目标 = 工作区；ptMaxPosition 相对显示器原点
-            // （任务栏在底部时 work.top == monitor.top → 0；在顶部/侧边也正确）
-            mmi.ptMaxSize.x = info.rcWork.right - info.rcWork.left;
-            mmi.ptMaxSize.y = info.rcWork.bottom - info.rcWork.top;
-            mmi.ptMaxPosition.x = info.rcWork.left - info.rcMonitor.left;
-            mmi.ptMaxPosition.y = info.rcWork.top - info.rcMonitor.top;
-
-            Marshal.StructureToPtr(mmi, lParam, true);
-        }
-
-        // ---- Win32 互操作（仅最大化修正使用）----
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct POINT
-        {
-            public int x;
-            public int y;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct RECT
-        {
-            public int left;
-            public int top;
-            public int right;
-            public int bottom;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct MINMAXINFO
-        {
-            public POINT ptReserved;
-            public POINT ptMaxSize;
-            public POINT ptMaxPosition;
-            public POINT ptMinTrackSize;
-            public POINT ptMaxTrackSize;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct MONITORINFO
-        {
-            public int cbSize;
-            public RECT rcMonitor;
-            public RECT rcWork;
-            public int dwFlags;
-        }
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
-
-        [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
         // ============================================================
         // 主题切换（深色 ↔ 浅色）

@@ -2,6 +2,50 @@
 
 > 格式约定：最新版本在最前；写清「改了什么 / 为什么」，重要改动才展开细节。
 
+## v2.11.2（2026-11-19）主窗骨架接入公司级控件库：MainWindow 改继承 kaleidoscope 的 ChromeBorderlessWindow 基类
+
+### 改动范围
+
+- **submodule 同步 + 反哺**：kaleidoscope 同步到 V2.1.0（新增 `Kaleidoscope.UI` 公司级 WPF 复用控件库：
+  弹窗基类 ChromeDialogWindow/标题条/Kx 与 Fresh 样式族/表单控件），并反哺沉淀 `ChromeBorderlessWindow`
+  **无边框圆角窗纯行为基类**（kaleidoscope V2.2.0）——把本项目 v2.10.2/v2.10.3 两轮实测的
+  "真圆角无边框主窗骨架"收进公司库（WindowChrome 外壳/分层透明三件套/根 Border 圆角 Clip 同步/
+  最大化圆角归零/**WM_GETMINMAXINFO 最大化工作区修正**），主仓库 submodule 指针随之更新。
+- `YoloDetector.csproj`：新增 ProjectReference → `Kaleidoscope.UI.csproj`（多目标库自动选 net472
+  产物）；submodule 排除规则补第四件 `<Page Remove="submodules\**" />`（见下方坑位）。
+- `UI/MainWindow.xaml`：根元素 `<Window>` → `<ui:ChromeBorderlessWindow>`（根元素传
+  `CaptionHeight="62"`/`CornerRadius="14"` 两个 DP）；删 `WindowStyle`/`AllowsTransparency`/
+  `Background` 三属性与整个 `<shell:WindowChrome.WindowChrome>` 节点（基类构造负责）；删手抄
+  的最大化修正注释段；头 ASCII 图与骨架注释同步更新。
+- `UI/MainWindow.xaml.cs`：基类改 `ChromeBorderlessWindow`；删手抄骨架 ~130 行（圆角常量/
+  裁剪几何/构造订阅/`UpdateFrameClip`/`Window_StateChanged` 圆角联动两行/**WM_GETMINMAXINFO
+  整段**（OnSourceInitialized/WndProc/AdjustMaximizedBounds/Win32 结构体与 P/Invoke））；
+  `Window_StateChanged` 只剩宿主图标切换行为。
+- `.opencode/skill/全量回归验证/harness/YoloDetector.Tests.csproj`：补引用
+  `Kaleidoscope.UI.dll`（MainWindow 基类换程序集后，harness 断言 Window 级成员需基类程序集引用，
+  否则 CS0012 编译不过）。
+
+### 为什么这么改
+
+- kaleidoscope 已把"各宿主重复手抄的骨架级 UI 资产"收口成库（CureLine/HJVision 两宿主已全切），
+  本项目 v2.10 无边框改造沉淀的骨架行为（尤其最大化盖任务栏修复）是库内没有的能力——按"新功能
+  动手前先自问能不能进检测类库/公司库"的约定反哺沉库，宿主只留薄壳接线，后续其他 WPF 宿主
+  （含 kaleidoscope 第二波主窗基类）直接复用。
+- 选用纯行为基类而非弹窗基类 ChromeDialogWindow：后者骨架自带库键板视觉（Fresh 族卡片底/描边/
+  投影），而本窗是玻璃拟态视觉体系（设计稿一比一验收基准），基类必须零键板依赖、视觉全由宿主
+  根 Border 自绘——ChromeBorderlessWindow 正是按此口径设计（不合并库字典即可用）。
+
+### 优化点与坑位
+
+- code-behind 净删 ~130 行，骨架行为（含两轮实测修复）收敛到一处基类，多宿主共享同一份实现。
+- 【实测坑】宿主主 csproj 的 submodule 排除规则只有 `Compile/None/Content Remove` 三件——
+  UI 库新增 .xaml 后，UseWPF 的 SDK 默认通配会把库样式字典当 Page 扫进主项目 XAML 编译
+  （MC3074 主程序集解析不到库内 clr-namespace 类型）；补 `<Page Remove="submodules\**" />`
+  后通过。此前 submodule 无 .xaml 所以三件够用，**四类排除缺一不可**（已沉淀 AGENTS.md）。
+- 验证：全量回归 182/182 全绿（`UI-无边框窗口WindowChrome配置` 运行时断言在配置迁到基类后
+  原样通过，证明行为等价）+ GUI 冒烟 + desktop 三态像素级目检（正常圆角 14px 四角透桌面/
+  最大化贴合工作区任务栏可见圆角归零/还原圆角恢复，像素采样证实）——视觉与交互零变化。
+
 ## v2.11.1（2026-11-16）顶栏应用名改为「YOLO 检测」
 
 ### 改动范围

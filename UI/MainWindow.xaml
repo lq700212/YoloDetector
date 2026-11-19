@@ -3,8 +3,9 @@
 
     ASCII 布局图（AI 无法看图，改布局全靠这段文本图）：
     ┌──────────────────────────────────────────────────────────────────────────────┐
-    │ 顶栏玻璃条 h=62（系统标题栏已移除：WindowStyle=None + WindowChrome，           │
-    │   空白区拖动窗口/双击最大化/边缘缩放由 WindowChrome 提供，顶栏空白即标题区）    │
+    │ 顶栏玻璃条 h=62（无边框窗基类 ChromeBorderlessWindow：WindowStyle=None +       │
+    │   WindowChrome，空白区拖动窗口/双击最大化/边缘缩放由 WindowChrome 提供，        │
+    │   顶栏空白即标题区；最大化工作区修正/圆角框架联动也内建于基类）                  │
     │  [■logo YOLO 检测] [txtIp 相机IP] [btnConnect ⏻连接相机]                      │
     │  [txtStreamUrl 流地址 MaxWidth420] ....间隙.... [通道 -0+] [●徽标] [◐] [-□✕]  │
     │                                    （-□✕=自绘窗口钮：btnMinWindow/btnMaxWindow│
@@ -35,52 +36,42 @@
       btnTheme        深色/浅色主题切换（Palette.Dark/Light 原位替换）
       roiImage.RoiSelected 归一化 ROI → 按 _calibTarget 分发热更新 + 配置落盘
 -->
-<Window x:Class="YoloDetector.UI.MainWindow"
+<ui:ChromeBorderlessWindow x:Class="YoloDetector.UI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:YoloDetector.UI"
+        xmlns:ui="clr-namespace:Kaleidoscope.UI.Views;assembly=Kaleidoscope.UI"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="YOLO 实时人员检测系统"
         Width="1280" Height="800" MinWidth="1160" MinHeight="740"
-        WindowStyle="None"
-        AllowsTransparency="True"
         WindowStartupLocation="CenterScreen"
-        Background="Transparent"
         FontFamily="Bahnschrift, Microsoft YaHei"
+        CaptionHeight="62" CornerRadius="14"
         Loaded="Window_Loaded"
         StateChanged="Window_StateChanged"
         Closed="Window_Closed">
 
-    <!-- 无边框窗口的"窗口外壳"配置（net472 内置 System.Windows.Shell.WindowChrome）：
-         - WindowStyle=None 移除系统标题栏/边框，但纯 None 会丢失缩放与拖动能力，
-           WindowChrome 负责把这些行为模拟回来：
-           CaptionHeight=62      顶栏玻璃条整体为"标题区"——空白处可拖动窗口、双击
-                                 最大化、贴边分屏（Aero Snap）；顶栏里可交互的控件
-                                 （输入框/stepper/按钮）必须显式声明
-                                 shell:WindowChrome.IsHitTestVisibleInChrome="True"，
-                                 否则点击会被当作拖动标题栏（logo 与状态徽标是纯展示，
-                                 故意不声明——留作拖动热区，与系统标题栏行为一致）；
-           ResizeBorderThickness=6  窗口四周 6px 热区支持拖拽缩放；
-           GlassFrameThickness=0 去掉 DWM 玻璃帧（否则顶部会残留一条透明系统框）；
-           UseAeroCaptionButtons=False 不叠加系统自带的最小化/最大化/关闭按钮
-                                 （三个自绘窗口钮顶栏右侧，见 Grid.Column=6） -->
-    <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="62"
-                            ResizeBorderThickness="6"
-                            GlassFrameThickness="0"
-                            CornerRadius="0"
-                            UseAeroCaptionButtons="False"/>
-    </shell:WindowChrome.WindowChrome>
+    <!-- 无边框窗口外壳（v2.11.2 起由基类 Kaleidoscope.UI.Views.ChromeBorderlessWindow 承担）：
+         WindowStyle=None / AllowsTransparency / Background=Transparent / WindowChrome
+         （CaptionHeight=62 顶栏玻璃条整体为"标题区"——空白处可拖动窗口、双击最大化、
+         贴边分屏；ResizeBorderThickness=6 边缘缩放热区；GlassFrameThickness=0 去掉
+         DWM 玻璃帧；UseAeroCaptionButtons=False 不叠加系统三钮）全部在基类构造中
+         配置，根元素上的 CaptionHeight/CornerRadius DP 转给基类。
+         本窗仍需维护的部分：
+         - 顶栏里可交互的控件（输入框/stepper/按钮）必须显式声明
+           shell:WindowChrome.IsHitTestVisibleInChrome="True"，否则点击会被当作
+           拖动标题栏（logo 与状态徽标是纯展示，故意不声明——留作拖动热区，
+           与系统标题栏行为一致）；
+         - WM_GETMINMAXINFO 最大化工作区修正（防最大化盖任务栏，v2.10.2 实测
+           踩坑）也在基类内建（FixMaximizedToWorkArea，勿关）。 -->
 
     <!-- 圆角窗口框架（v2.10.3，照设计稿 .mock 的 border-radius:14px + overflow:hidden）：
-         Win10 下 WPF 窗口要做"真圆角"必须走分层窗口：AllowsTransparency=True +
-         窗口本体 Background=Transparent（四角透出桌面），视觉全部由这层
-         14px 圆角 Border 提供。WindowChrome 的 CornerRadius 属性只影响非客户区
-         计算不产生视觉圆角，故保持 0。两个联动点：
-         1) rootFrame.SizeChanged 在 code-behind 同步设置圆角矩形 Clip——
-            光斑 Ellipse 用负 Margin 刻意溢出窗口，等效设计稿的 overflow:hidden；
-         2) Window_StateChanged 在最大化时把圆角清零（贴满工作区不留透明角），
-            还原时恢复 14px。
+         视觉圆角由这层 14px 圆角 Border 提供（根 Border 的 CornerRadius 应与根元素
+         的 CornerRadius DP 一致）。两个联动点已内建于基类：
+         1) 根 Border 的 SizeChanged/Loaded 同步设置圆角矩形 Clip——光斑 Ellipse 用
+            负 Margin 刻意溢出窗口，不裁会画到四角外（等效设计稿 overflow:hidden）；
+         2) StateChanged 在最大化时把圆角清零（贴满工作区不留透明角），还原时
+            恢复 DP 值 14px。
          注意：AllowsTransparency 会强制整个窗口走软件渲染（WPF 分层窗口特性），
          这与 SoftwareRenderingPolicy 的远程串流修复叠加后，UU远程/向日葵等
          远程环境下 WPF 不再产生 D3D 高频呈现，双指针问题得到双重保险。 -->
@@ -461,4 +452,4 @@
         </Grid>
     </Grid>
     </Border>
-</Window>
+</ui:ChromeBorderlessWindow>

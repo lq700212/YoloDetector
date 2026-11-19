@@ -20,14 +20,23 @@
   <ItemGroup>
     <Compile Remove="Detection\**\*.cs" />
     <!-- submodule 内容必须整体排除：SDK 默认通配会把 kaleidoscope 内所有 .cs/
-         bin/obj 扫进主项目（实测会与核心库 DLL 重复编译冲突） -->
+         bin/obj 扫进主项目（实测会与核心库 DLL 重复编译冲突）。v2.11.2 补 Page
+         排除——Kaleidoscope.UI 控件库新增 .xaml 样式字典后，UseWPF 的默认通配
+         还会把它们当 Page 扫进主项目 XAML 编译（实测 MC3074：主程序集里解析
+         不到库内 clr-namespace 类型），四类排除缺一不可 -->
     <Compile Remove="submodules\**\*.cs" />
     <None Remove="submodules\**" />
     <Content Remove="submodules\**" />
+    <Page Remove="submodules\**" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="submodules\kaleidoscope\Vision\Detection\Kaleidoscope.Detection.csproj" />
     <ProjectReference Include="Detection\YoloDetector.Detection.csproj" />
+    <!-- Kaleidoscope.UI：公司级 WPF 复用控件库（v2.11.2 起 UI 层接入）——
+         MainWindow 改继承其 ChromeBorderlessWindow（无边框圆角窗纯行为基类，
+         零键板依赖，玻璃拟态视觉仍全部由宿主 XAML 自绘）。多目标库
+         （net472;net8.0-windows）经 ProjectReference 自动选 net472 产物 -->
+    <ProjectReference Include="submodules\kaleidoscope\Kaleidoscope.UI\Kaleidoscope.UI.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- 依赖 vendor（零 NuGet、克隆即编译，工厂无网环境可用）：
